@@ -72,16 +72,16 @@
         "packable": false,
         "vertices": {
           "rawPosition": [
-            -836.0,
+            -836,
             -470.5,
             0,
-            836.0,
+            836,
             -470.5,
             0,
-            -836.0,
+            -836,
             470.5,
             0,
-            836.0,
+            836,
             470.5,
             0
           ],
@@ -114,12 +114,12 @@
             1
           ],
           "minPos": [
-            -836.0,
+            -836,
             -470.5,
             0
           ],
           "maxPos": [
-            836.0,
+            836,
             470.5,
             0
           ]
@@ -137,7 +137,7 @@
   "userData": {
     "type": "sprite-frame",
     "redirect": "7e53a024-b8d8-5eb1-9602-eef2bbfe035d@6c48a",
-    "hasAlpha": true,
+    "hasAlpha": false,
     "fixAlphaTransparencyArtifacts": false
   }
 }

@@ -4,7 +4,7 @@
 
 | ID / 状态 | 影响与依据 | 下一步 / 验收边界 |
 | --- | --- | --- |
-| VERIFY-01 / blocked | Mac Creator 3.8.8 已真实导入并走到 Login→Game；首战重排调度停滞、PNG 无 SpriteFrame 已复现。云端修复后等待复验。见 [验证方法](COCOS-SETUP.md#verification-contract) | 在可用且获授权的 Creator 调试环境上先完成单实例 Login→Game→一次操作→保存重开→取证清理；代码修复仍返回云端。未验证前不得称可玩验收完成。 |
+| VERIFY-01 / core flow passed | Mac Creator 3.8.8 修复后正常流程已到第七关；同浏览器会话重开页面恢复进度。见 [验证方法](COCOS-SETUP.md#verification-contract) | 本地试玩正常流程可用；完整浏览器退出重启、战斗中断/后台及故障恢复仍须分项验证，不等同于平台发布验收。 |
 | SAVE-01 / awaiting runtime QA | LocalSaveStore 已区分无档/合法/损坏/不可读，显式备份重建/临时模式保护原档；存储与编排故障测试通过，未实测 Creator 恢复页 | 在隔离真实 Creator 环境验证四类启动、恢复选择、备份与重开；不扩大权限或清除玩家数据。 |
 | SAVE-02 / awaiting runtime QA | 保存结果契约已实现，常驻未保存状态/重试/冲突后确认重读，结算区分内存与持久成功；单测通过 | 真实UI验证写失败、重试、重复结算、冲突与重开，不重复奖励。 |
 | ARCH-01 / open | `GameApp.ts` 同时负责 UI、演出、用例编排、本地存储；未来平台接入可能扩大耦合 | 需要产品修改时评估最小抽取 application/storage 边界，见 [分层契约](.ai/docs/architecture.md#boundaries)；本轮不拆代码。 |
@@ -31,4 +31,4 @@
 
 ## 当前执行批次：PLAY-02（2026-11-17）
 
-集成负责人负责 GameApp、资源 meta、测试与共享文档。Mac 会话独占 Creator 3.8.8 和隔离副本；原工作目录保留，不在 Mac 改源码。基线 dfaf6ea。云端修复：一次性回调以新闭包排队；六张 PNG 显式 SpriteFrame 导入；package 两个版本字段统一为 3.8.8。40 项 Node 测试通过，独立审查及真实复验待完成。首轮运行证据见检查记录。
+集成负责人负责 GameApp、资源 meta、测试与共享文档。Mac 会话独占 Creator 3.8.8 和隔离副本；原工作目录保留，不在 Mac 改源码。基线 dfaf6ea。云端修复：一次性回调以新闭包排队；六张 PNG 显式 SpriteFrame 导入；package 两个版本字段统一为 3.8.8。40 项 Node 测试与独立代码审查通过；真实正常流程已到第七关。按实测 3.8.8 导入产物规范化 19 个资源 meta，保留原脚本/PNG UUID 并纳入目录 UUID。复验范围与限制见检查记录。
