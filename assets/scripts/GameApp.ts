@@ -159,8 +159,13 @@ export class GameApp extends Component {
     if (this.spellFrames.get(name) === frame) return;
     frame.addRef(); this.spellFrames.get(name)?.decRef(); this.spellFrames.set(name, frame);
   }
-  private preloadSpells(stageKey = stageBackdrop(getStage(this.save.stage).regionIndex), retry = false) {
+  private requiredPresentation(units: BattleUnit[], stageKey: string) {
     const names = [stageKey, this.save.commanderSkill === 'swordRain' ? 'fx-sword' : 'fx-fireball', 'commander', 'ui-skill-banner'];
+    if (units.some(unit => unit.heroId === 'mage') && !names.includes('fx-fireball')) names.push('fx-fireball');
+    return names;
+  }
+  private preloadSpells(stageKey = stageBackdrop(getStage(this.save.stage).regionIndex), retry = false, units: BattleUnit[] = []) {
+    const names = this.requiredPresentation(units, stageKey);
     this.wantedPresentation = new Set(names);
     // game() has cleared/detached the previous stage nodes before dropping ownership.
     for (const [name, frame] of Array.from(this.spellFrames)) {
@@ -202,7 +207,7 @@ export class GameApp extends Component {
     else { this.store = new LocalSaveStore(sys.localStorage, STORE); this.load(); }
   }
   onDestroy() {
-    this.cancelContactMotion();
+    this.cancelMageEffects(); this.cancelContactMotion();
     screen.off('window-resize', this.resizePresentation, this); this.viewportLayouts.clear();
     this.fontRequest++; this.clearFontLabels(); this.displayFont?.decRef(); this.displayFont = null;
     this.generation++; this.displayGeneration++; this.presentationSerial++; this.presentationRequests.clear(); this.wantedPresentation.clear();
@@ -341,7 +346,7 @@ export class GameApp extends Component {
     n.on(Button.EventType.CLICK, () => { if (active && !this.running && isValid(n, true)) action(); }); return n;
   }
   private clear() {
-    this.cancelContactMotion(); this.motionNodes.clear();
+    this.cancelMageEffects(); this.cancelContactMotion(); this.motionNodes.clear();
     this.viewportLayouts.clear();
     this.clearFontLabels(); this.fontFailed = false;
     if (this.backgroundLayer) {
@@ -451,7 +456,9 @@ export class GameApp extends Component {
 
   private game(retryPresentation = false) {
     this.clear(); const stage = getStage(this.save.stage);
-    this.preloadSpells(stageBackdrop(stage.regionIndex), retryPresentation);
+    let battle;
+    try { battle = simulateBattle(this.save); } catch { battle = { initialUnits: [] as BattleUnit[] }; }
+    this.preloadSpells(stageBackdrop(stage.regionIndex), retryPresentation, battle.initialUnits);
     this.background(stage.regionIndex);
     this.edgeVeil(this.backgroundLayer || this.root, true, 160);
     const top = this.ribbon(this.root, 0, 555, 672, 70);
@@ -460,8 +467,6 @@ export class GameApp extends Component {
     this.shadowText(top, `灵石 ${this.save.coins}`, 225, 0, 24, GOLD, 180);
     const chapter = this.ribbon(this.root, 0, 475, 470, 52);
     this.shadowText(chapter, `${stage.encounter.title} · ${stage.wave} / 6`, 0, 0, 24, PAPER, 430);
-    let battle;
-    try { battle = simulateBattle(this.save); } catch { battle = { initialUnits: [] as BattleUnit[] }; }
     if (battle.initialUnits.some(unit => unit.heroId === 'sword')) this.preloadSwordActions();
     // Back rows first, front rows last: lower ground figures overlap upper ones naturally.
     for (const u of [...battle.initialUnits].sort((a, b) => a.row - b.row || b.col - a.col)) this.drawUnit({ ...u, hp: u.maxHp });
@@ -603,7 +608,7 @@ export class GameApp extends Component {
     portrait.setPosition((frame.originalSize.width / 2 - art.groundX) * scale * actor.mirror, -40 + (art.groundY - frame.originalSize.height / 2) * scale);
   }
   private focusBattle(actor?: string, targets: string[] = [], commander = false) {
-    this.cancelContactMotion();
+    this.cancelMageEffects(); this.cancelContactMotion();
     if (!this.stageMode) return;
     this.stagePlacements = new Map(stageFocus(this.stageUnits, actor, targets).map(item => [item.uid, item]));
     for (const [uid, node] of Array.from(this.unitNodes)) {
@@ -1008,7 +1013,7 @@ export class GameApp extends Component {
     else this.replayBattle(result, token, stageKey);
   }
   private awaitBattleAssets(units: BattleUnit[], token: number, ready: () => void, stageKey = stageBackdrop(getStage(this.save.stage).regionIndex)) {
-    const required = [stageKey, 'commander', 'ui-skill-banner', this.save.commanderSkill === 'swordRain' ? 'fx-sword' : 'fx-fireball'];
+    const required = this.requiredPresentation(units, stageKey);
     let elapsed = 0, completed = false;
     const check = () => {
       if (completed || token !== this.generation || !isValid(this, true) || !isValid(this.root, true)) return;
@@ -1036,7 +1041,7 @@ export class GameApp extends Component {
     if (this.unitNodes.size) this.enterBattleStage(result.initialUnits, stageKey);
     let index = 0;
     let commanderFocused = false;
-    let pendingAction: { actor: string; energyAfter: number; actionSkill?: string } | null = null;
+    let pendingAction: { actor: string; energyAfter: number; actionSkill?: string; castStarted?: boolean } | null = null;
     const finishAction = () => {
       if (pendingAction) this.updateEnergy(pendingAction.actor, pendingAction.energyAfter);
       pendingAction = null;
@@ -1117,6 +1122,9 @@ export class GameApp extends Component {
       if (e.type === 'commander' && e.target) {
         this.eventFeedback(); // Clear previous feedback while the new projectile is travelling.
         this.spellEffect(e.target, this.save.commanderSkill, displayImpact);
+      } else if (e.type === 'attack' && e.target && pendingAction?.actionSkill === 'classSkill' && this.unitActors.get(pendingAction.actor)?.heroId === 'mage') {
+        const first = !pendingAction.castStarted; pendingAction.castStarted = true;
+        this.mageSpell(pendingAction.actor, e.target, first, displayImpact);
       } else displayImpact();
       // A fresh callback avoids re-scheduling the currently executing one-shot timer.
       this.scheduleOnce(() => advance(), (e.type === 'commander' ? .65 : .38) / this.speed);
@@ -1130,6 +1138,52 @@ export class GameApp extends Component {
     const point = this.root.getComponent(UITransform)!.convertToNodeSpaceAR(node.worldPosition);
     point.y += miniature ? 0 : placement ? placement.bodyHeight * .55 - 40 : 22;
     return point;
+  }
+  private mageEffects = new Set<Node>();
+  private mageCastSerial = 0;
+  private cancelMageEffects() {
+    this.mageCastSerial++;
+    for (const node of Array.from(this.mageEffects)) if (isValid(node, true)) { this.detachSpriteFrames(node); node.destroy(); }
+    this.mageEffects.clear();
+  }
+  private mageHandPoint(uid: string) {
+    const portrait = this.unitPortraits.get(uid), frame = portrait?.getComponent(Sprite)?.spriteFrame;
+    const transform = portrait?.getComponent(UITransform);
+    if (!portrait || !transform || !frame || !isValid(portrait, true)) return null;
+    // Adopted B illustration: the forward fingertip, source pixels (top-left origin).
+    const local = new Vec3((1006 / 1199 - .5) * transform.width, (.5 - 245 / 1312) * transform.height, 0);
+    return this.root.getComponent(UITransform)!.convertToNodeSpaceAR(transform.convertToWorldSpaceAR(local));
+  }
+  private mageSpell(actor: string, uid: string, first: boolean, onImpact: () => void) {
+    const token = this.generation, speed = this.speed, target = this.unitNodes.get(uid), focus = this.stagePlacements, serial = this.mageCastSerial;
+    const frame = this.spellFrames.get('fx-fireball'), end = this.spellImpactPoint(uid);
+    const start = first ? this.mageHandPoint(actor) : end;
+    let impacted = false;
+    const valid = () => serial === this.mageCastSerial && token === this.generation && focus === this.stagePlacements && isValid(this, true) && isValid(this.root, true) && !!target && isValid(target, true);
+    const hit = () => { if (!impacted && valid()) { impacted = true; onImpact(); } };
+    // Timing is event-owned, including the defensive unavailable-art fallback.
+    this.scheduleOnce(hit, .22 / speed);
+    if (!frame || !isValid(frame) || !start || !end || !valid()) return;
+    const miniature = this.stageMode && !this.stagePlacements.has(uid);
+    const width = first ? 140 : miniature ? 55 : 85, height = width * frame.originalSize.height / frame.originalSize.width;
+    const fx = this.make(first ? 'MageCast' : 'MageImpact', this.root, start.x, start.y, 1, 1);
+    this.mageEffects.add(fx);
+    fx.angle = Math.atan2(end.y - start.y, end.x - start.x) * 180 / Math.PI;
+    const art = this.make('MageFlameSource', fx, (.5 - .84) * width, (.53 - .5) * height, width, height);
+    const sprite = art.addComponent(Sprite); sprite.spriteFrame = frame; sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    art.getComponent(UITransform)!.setContentSize(width, height);
+    const opacity = fx.addComponent(UIOpacity); opacity.opacity = first ? 140 : 0;
+    fx.setScale(first ? .36 : .7, first ? .36 : .7, 1);
+    if (first) {
+      tween(fx).to(.06 / speed, {scale: new Vec3(.5, .5, 1)})
+        .to(.16 / speed, {position: new Vec3(end.x, end.y, 0), scale: new Vec3(1, 1, 1)})
+        .to(.1 / speed, {scale: new Vec3(1.12, 1.12, 1)}).start();
+      tween(opacity).to(.06 / speed, {opacity: 240}).delay(.16 / speed).to(.1 / speed, {opacity: 0}).start();
+    } else {
+      tween(fx).delay(.22 / speed).to(.1 / speed, {scale: new Vec3(1.1, 1.1, 1)}).start();
+      tween(opacity).delay(.22 / speed).to(.02 / speed, {opacity: 235}).to(.08 / speed, {opacity: 0}).start();
+    }
+    this.scheduleOnce(() => { if (isValid(fx, true)) { this.detachSpriteFrames(fx); fx.destroy(); } this.mageEffects.delete(fx); }, .33 / speed);
   }
   private spellEffect(uid: string, skill: string, onImpact: () => void = () => {}) {
     const target = this.unitNodes.get(uid), token = this.generation;

@@ -32,7 +32,7 @@ const makeNode=(parent=null,x=0,y=0,w=0,h=0)=>{
   get parent(){return owner;},set parent(value){if(owner){const i=owner.children.indexOf(this);if(i>=0)owner.children.splice(i,1);}owner=value;if(owner&&!owner.children.includes(this))owner.children.push(this);},
   on(key,fn){this.events[key]=fn;},destroy(){this.isValid=false;},removeAllChildren(){for(const child of [...this.children])child.parent=null;},
   addComponent(type){const c=type===FakeSprite?{}:graphics();this.components.set(type,c);return c;},
-  getComponent(type){if(type===FakeTransform)return {setContentSize:(w,h)=>{this.w=w;this.h=h;},convertToNodeSpaceAR:p=>{const origin=world(this);return {x:p.x-origin.x,y:p.y-origin.y,z:0};}};return this.components.get(type);},
+  getComponent(type){if(type===FakeTransform)return {width:this.w,height:this.h,convertToWorldSpaceAR:p=>{let x=p.x,y=p.y;for(let n=this;n;n=n.parent){x=x*n.scaleX+n.x;y=y*n.scaleY+n.y;}return {x,y,z:0};},setContentSize:(w,h)=>{this.w=w;this.h=h;},convertToNodeSpaceAR:p=>{const origin=world(this);return {x:p.x-origin.x,y:p.y-origin.y,z:0};}};return this.components.get(type);},
   setSiblingIndex(index){if(!owner)return;const old=owner.children.indexOf(this);if(old>=0)owner.children.splice(old,1);owner.children.splice(index,0,this);},
   setPosition(x,y){if(typeof x==='object'){this.x=x.x;this.y=x.y;}else{this.x=x;this.y=y;}},
   get position(){const {x,y}=this;return {x,y,z:0,clone(){return {x,y,z:0};}};},get worldPosition(){return world(this);},
@@ -57,7 +57,7 @@ function setup(stage=1) {
  const button=app.button;app.button=function(...args){const n=button.apply(this,args);n.button=true;n.text=args[1];return n;};
  return app;
 }
-function readyFigures(app){for(const unit of core.simulateBattle(app.save).initialUnits){app.unitArtReady.add(unit.uid);app.spellFrames.set(app.fighterArt(unit.role,unit.heroId).name,new FakeFrame());}for(const name of ['commander','ui-skill-banner'])app.spellFrames.set(name,new FakeFrame());}
+function readyFigures(app){for(const unit of core.simulateBattle(app.save).initialUnits){app.unitArtReady.add(unit.uid);app.spellFrames.set(app.fighterArt(unit.role,unit.heroId).name,new FakeFrame());}for(const name of ['commander','ui-skill-banner','fx-fireball'])app.spellFrames.set(name,new FakeFrame());}
 function alive(n){return n.active!==false&&n.isValid&&(!n.parent||alive(n.parent));}
 function rect(n){let x=n.x,y=n.y;for(let p=n.parent;p;p=p.parent){x+=p.x;y+=p.y;}return {left:x-n.w/2,right:x+n.w/2,bottom:y-n.h/2,top:y+n.h/2};}
 function verify(app) {
@@ -159,7 +159,7 @@ test('energy playback applies event after-values only after all effects, with no
  }});
  for(const u of result.initialUnits)assert.equal(app.unitEnergy.get(u.uid).value,u.energy);
  // Keep real display state, but remove target nodes to omit renderer-only tweens.
- app.unitNodes.clear();const pending=[],changes=[];let waits=0;
+ app.unitNodes.clear();app.mageSpell=(_actor,_target,_first,hit)=>hit();const pending=[],changes=[];let waits=0;
  app.scheduleOnce=(fn,delay)=>{pending.push(fn);waits++;};
  const update=app.updateEnergy;app.updateEnergy=function(uid,value){changes.push({uid,value,lastEffect:this.status.string});return update.call(this,uid,value);};
  app.fight();let ticks=0;while(pending.length){pending.shift()();assert.ok(ticks++<2000);}
@@ -439,7 +439,7 @@ test('Login does not request battle stages, spells or action sheets',()=>{
 });
 test('current region and selected spell alone are requested and stale callbacks never acquire ownership',()=>{
  const app=setup(7);app.game();const oldStage=resources.loads.find(r=>r.path==='art/battle-temple-stage/spriteFrame'),oldSpell=resources.loads.find(r=>r.path==='art/fx-sword/spriteFrame');
- assert.ok(oldStage&&oldSpell);assert.ok(!resources.loads.some(r=>r.path==='art/battle-underworld-stage/spriteFrame'||r.path==='art/fx-fireball/spriteFrame'));
+ assert.ok(oldStage&&oldSpell);assert.ok(!resources.loads.some(r=>r.path==='art/battle-underworld-stage/spriteFrame'));
  app.save.stage=13;app.save.commanderSkill='fireball';app.game();const stale=new FakeFrame();oldStage.callback(null,stale);oldSpell.callback(Error('stale failure'));
  assert.equal(stale.refs,0);assert.ok(!app.presentationFailures.has('fx-sword'));assert.ok(!app.spellFrames.has('battle-temple-stage'));
  const current=new FakeFrame();resources.loads.find(r=>r.path==='art/battle-underworld-stage/spriteFrame').callback(null,current);assert.equal(current.refs,1);
@@ -461,7 +461,7 @@ test('100 preparation redraws keep one owner per cached asset and detach old sta
 test('retry invalidates only missing relevant tickets, including same-key late results',()=>{
  const app=setup(7);app.preloadSpells();const old=resources.loads.find(r=>r.path==='art/battle-temple-stage/spriteFrame');app.preloadSpells(undefined,true);
  const newest=resources.loads.filter(r=>r.path==='art/battle-temple-stage/spriteFrame').at(-1);assert.notEqual(newest,old);const abandoned=new FakeFrame(),accepted=new FakeFrame();old.callback(null,abandoned);assert.equal(abandoned.refs,0);newest.callback(null,accepted);assert.equal(accepted.refs,1);
- assert.ok(!resources.loads.some(r=>/battle-(bamboo|underworld)-stage|fx-fireball/.test(r.path)));
+ assert.ok(!resources.loads.some(r=>/battle-(bamboo|underworld)-stage/.test(r.path)));
 });
 test('battle stage key is captured before waiting and used unchanged by replay',()=>{
  const app=setup(7);app.game();app.isValid=true;let waited,played;app.awaitBattleAssets=(units,token,ready,key)=>{waited=key;app.save.stage=13;ready();};app.replayBattle=(result,token,key)=>{played=key;};app.fight();assert.equal(waited,'battle-temple-stage');assert.equal(played,waited);
@@ -700,4 +700,81 @@ test('same-side support and unscoped sword effects do not acquire contact displa
 test('contact impact is once-only and destroy cancels both queued poses and active displacement',()=>{
  const app=setup(14);app.game();app.isValid=true;app.swordFrames=Array.from({length:4},()=>new FakeFrame());const units=core.simulateBattle(app.save).initialUnits;app.enterBattleStage(units);const actor=units.find(u=>u.side==='ally'&&u.heroId==='sword'),target=units.find(u=>u.side==='enemy');app.focusBattle(actor.uid,[target.uid]);const timers=[];app.scheduleOnce=fn=>timers.push(fn);let hits=0;app.playSwordAction(actor.uid,()=>hits++,target.uid);
  timers[0]();timers[0]();assert.equal(hits,1);app.update(.1);const motion=app.motionNodes.get(actor.uid);assert.ok(motion.x>0);app.unscheduleAllCallbacks=()=>{};app.onDestroy();assert.equal(motion.x,0);assert.equal(app.contactMotion,null);timers.forEach(fn=>fn());assert.equal(hits,1);
+});
+
+test('cast assets use actual units and share preload ready prune requirements',()=>{
+ const app=setup();app.save.commanderSkill='swordRain';
+ const base=app.requiredPresentation([{heroId:'frost'},{heroId:'healer'}],'battle-bamboo-stage');
+ assert.ok(!base.includes('fx-fireball'));
+ assert.ok(app.requiredPresentation([{heroId:'mage',side:'enemy'}],'battle-bamboo-stage').includes('fx-fireball'));
+ app.preloadSpells(undefined,false,core.simulateBattle(app.save).initialUnits);const request=resources.loads.find(r=>r.path==='art/fx-fireball/spriteFrame');assert.ok(request);
+ const frame=new FakeFrame();request.callback(null,frame);assert.equal(frame.refs,1);
+ app.preloadSpells(undefined,false,core.simulateBattle(app.save).initialUnits);assert.equal(frame.refs,1);app.unscheduleAllCallbacks=()=>{};app.onDestroy();assert.equal(frame.refs,0);
+});
+test('B mage source fingertip follows actual art size mirror parent transforms',()=>{
+ const app=setup();const parent=makeNode(app.root,50,70);parent.setScale(2,2);
+ for(const mirror of [1,-1]){
+  const art=makeNode(parent,20,30,599.5,656);art.setScale(mirror,1);art.addComponent(FakeSprite).spriteFrame=new FakeFrame();app.unitPortraits.set('mage',art);
+  const point=app.mageHandPoint('mage');assert.ok(Math.abs(point.x-(50+2*(20+mirror*(1006-599.5)*.5)))<1e-9);assert.equal(point.y,70+2*(30+(656-245)*.5));
+ }
+});
+test('mage fire uses one travel then local impacts with once-only hit at .22 and no extra event wait',()=>{
+ for(const speed of [1,2]){
+  const app=setup();app.speed=speed;app.isValid=true;const timers=[];app.scheduleOnce=(fn,time)=>timers.push({fn,time});motions.length=0;
+  app.mageHandPoint=()=>({x:-80,y:190});const target=makeNode(app.root,130,100);app.unitNodes.set('enemy',target);
+  const frame=Object.assign(new FakeFrame(),{originalSize:{width:1774,height:887}});app.spellFrames.set('fx-fireball',frame);let hits=0;
+  app.mageSpell('mage','enemy',true,()=>hits++);assert.equal(hits,0);assert.equal(timers[0].time,.22/speed);timers[0].fn();timers[0].fn();assert.equal(hits,1);
+  const cast=app.nodes.find(n=>n.name==='MageCast');assert.equal(cast.x,-80);assert.equal(cast.y,190);
+  const path=motions.find(m=>m.target===cast);assert.equal(path.steps[0].args[0],.06/speed);assert.equal(path.steps[1].args[0],.16/speed);assert.equal(path.steps[1].args[1].position.x,130);
+  app.mageSpell('mage','enemy',false,()=>hits++);assert.equal(app.nodes.filter(n=>n.name==='MageCast').length,1);assert.equal(app.nodes.filter(n=>n.name==='MageImpact').length,1);
+  const flame=app.nodes.find(n=>n.name==='MageFlameSource');assert.equal(flame.w/flame.h,2);timers[1].fn();assert.equal(flame.getComponent(FakeSprite).spriteFrame,null);
+ }
+});
+test('mage cancellation rejects stale scene focus and destroyed target; fallback retains timed event',()=>{
+ for(const cancel of [app=>app.generation++,app=>app.stagePlacements=new Map(),app=>app.root.destroy(),app=>app.isValid=false,app=>app.unitNodes.get('target').destroy()]){
+  const app=setup();app.isValid=true;app.mageHandPoint=()=>null;app.unitNodes.set('target',makeNode(app.root));let callback,hits=0;app.scheduleOnce=fn=>callback=fn;
+  app.mageSpell('mage','target',true,()=>hits++);cancel(app);callback();assert.equal(hits,0);
+ }
+ const app=setup();app.isValid=true;app.mageHandPoint=()=>null;app.unitNodes.set('target',makeNode(app.root));let callback,hits=0;app.scheduleOnce=fn=>callback=fn;
+ app.mageSpell('mage','target',true,()=>hits++);assert.equal(hits,0);callback();callback();assert.equal(hits,1);
+});
+
+test('mage attack replay retains every original slot and one cast per group, excluding frost heal basic and death',()=>{
+ for(const speed of [1,2]){
+  const app=setup();app.game();app.isValid=true;app.speed=speed;app.enterBattleStage=()=>{};app.focusBattle=()=>{};app.outcome=()=>{};app.persist=()=>{};
+  const units=core.simulateBattle(app.save).initialUnits,actor=units.find(u=>u.heroId==='mage'),targets=units.filter(u=>u.side!==actor.side).slice(0,2);
+  app.unitNodes.clear();const calls=[],health=[],energy=[];let now=0;const timers=[];app.scheduleOnce=(fn,delay)=>timers.push({fn,at:now+delay});
+  app.updateHealth=(uid,hp,dead)=>health.push({uid,hp,dead,at:now});app.updateEnergy=()=>energy.push(now);
+  app.mageSpell=(uid,target,first,hit)=>{calls.push({uid,target,first,at:now});app.scheduleOnce(hit,.22/speed);};
+  const events=[{type:'action',actor:actor.uid,actionSkill:'classSkill',energyAfter:0,text:'cast'},
+   {type:'attack',actor:actor.uid,target:targets[0].uid,hp:0,text:'hit'},
+   {type:'death',target:targets[0].uid,text:'death'},
+   {type:'attack',actor:actor.uid,target:targets[1].uid,hp:10,text:'hit2'},
+   {type:'action',actor:actor.uid,actionSkill:'attack',energyAfter:1,text:'basic'},
+   {type:'attack',actor:actor.uid,target:targets[1].uid,hp:9,text:'basic-hit'},
+   {type:'action',actor:actor.uid,actionSkill:'classSkill',energyAfter:0,text:'support'},
+   {type:'heal',actor:actor.uid,target:actor.uid,hp:99,text:'heal'},
+   {type:'end',text:'end'}];
+  app.replayBattle({initialUnits:units,units,events,winner:'enemy',rounds:1},app.generation);
+  while(timers.length){timers.sort((a,b)=>a.at-b.at);const item=timers.shift();now=item.at;item.fn();}
+  assert.deepEqual(calls.map(c=>c.first),[true,false]);assert.equal(calls[1].at,.76/speed);assert.equal(health[0].at,.22/speed);assert.equal(health[2].at,.98/speed);assert.ok(Math.abs(energy[0]-1.14/speed)<1e-9);
+  assert.ok(Math.abs(now-6*.38/speed)<1e-9,'no extra action or VFX delay');
+  assert.ok(source.includes("this.unitActors.get(pendingAction.actor)?.heroId === 'mage'"));
+ }
+});
+test('mage off-camera impacts keep actual miniature coordinates and focus cancellation detaches VFX',()=>{
+ const app=setup(14);app.game();const units=core.simulateBattle(app.save).initialUnits;app.enterBattleStage(units);app.isValid=true;
+ const enemies=units.filter(u=>u.side==='enemy'),mage=units.find(u=>u.heroId==='mage');app.focusBattle(mage.uid,[enemies[0].uid]);app.mageHandPoint=()=>({x:1,y:2});
+ const frame=Object.assign(new FakeFrame(),{originalSize:{width:1774,height:887}});app.spellFrames.set('fx-fireball',frame);app.scheduleOnce=()=>{};
+ for(const enemy of [enemies[2],enemies[8]]){const expected=app.spellImpactPoint(enemy.uid);app.mageSpell(mage.uid,enemy.uid,false,()=>{});const fx=app.nodes.filter(n=>n.name==='MageImpact').at(-1);assert.equal(fx.x,expected.x);assert.equal(fx.y,expected.y);}
+ const sources=app.nodes.filter(n=>n.name==='MageFlameSource');app.focusBattle(mage.uid,[enemies[1].uid]);assert.equal(app.mageEffects.size,0);for(const node of sources)assert.equal(node.getComponent(FakeSprite).spriteFrame,null);
+});
+
+test('legal empty formation keeps preparation and menus available without battle settlement',()=>{
+ const app=setup();app.save.formation=Array(9).fill(null);const before=structuredClone(app.save);let settled=0,message='';
+ app.outcome=()=>settled++;app.persist=()=>{throw Error('empty formation must not persist a reward');};app.toast=text=>message=text;
+ assert.doesNotThrow(()=>app.game());assert.ok(app.nodes.filter(alive).some(n=>n.button&&n.text==='布阵'));
+ assert.ok(app.nodes.filter(alive).some(n=>n.button&&n.text==='招募'));assert.doesNotThrow(()=>app.formation());assert.doesNotThrow(()=>app.recruitment());
+ app.game();app.fight();assert.equal(app.running,false);assert.equal(app.resultAwarded,false);assert.equal(settled,0);assert.match(message,/至少/);assert.deepEqual(app.save,before);
+ assert.ok(!source.slice(source.indexOf('private preloadSpells'),source.indexOf('onLoad()')).includes('simulateBattle'));
 });
