@@ -13,7 +13,7 @@ const { LocalSaveStore } = await import('../assets/scripts/infrastructure/LocalS
 let source = readFileSync(new URL('../assets/scripts/GameApp.ts', import.meta.url), 'utf8');
 source = stripTypeScriptTypes(source.replace(/^@ccclass\([^\n]+\)\n/gm, '').replace(/@property /g, ''), { mode: 'strip' });
 source = source.replace(/^import[^\n]+\n/gm, '').replace('export class GameApp', 'class GameApp');
-const GameApp = new Function('_decorator', 'Component', 'Node', 'LocalSaveStore', 'isValid', 'Mask', 'stageBackdrop', 'Sprite', ...Object.keys(core), source + '\nreturn GameApp;')({}, class {}, { EventType: { TOUCH_END: 'touch-end' } }, LocalSaveStore, n => !!n && n.isValid !== false, class {}, stageBackdrop, class {}, ...Object.values(core));
+const GameApp = new Function('_decorator', 'Component', 'Node', 'LocalSaveStore', 'isValid', 'Mask', 'stageBackdrop', 'Sprite', 'screen', ...Object.keys(core), source + '\nreturn GameApp;')({}, class {}, { EventType: { TOUCH_END: 'touch-end' } }, LocalSaveStore, n => !!n && n.isValid !== false, class {}, stageBackdrop, class {}, {off(){}}, ...Object.values(core));
 function setup(raw = null) {
  GameApp.session = null;
  const values = new Map(raw === null ? [] : [['save', raw]]);

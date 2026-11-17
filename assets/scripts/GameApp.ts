@@ -1,8 +1,9 @@
-import { _decorator, Component, Node, Canvas, Camera, UITransform, Graphics, Color, Label, Layers, view, screen, ResolutionPolicy, director, sys, resources, SpriteFrame, Sprite, tween, Vec3, Mask, Button, BlockInputEvents, UIOpacity, Texture2D, Rect, Size, Vec2, isValid } from 'cc';
+import { _decorator, Component, Node, Canvas, Camera, UITransform, Graphics, Color, Label, Layers, view, screen, ResolutionPolicy, director, sys, resources, SpriteFrame, Sprite, tween, Vec3, Mask, Button, BlockInputEvents, UIOpacity, Texture2D, Rect, Size, Vec2, TTFFont, isValid } from 'cc';
 import { createSave, HEROES, getUnlockedSlots, getStage, simulateBattle, settleBattle, setFormation, recruit, upgradeCommander, selectCommanderSkill, commanderUpgradeCost, RECRUIT_COST, getStrategy, setStrategy, STRATEGY_SKILLS, STRATEGY_CONDITIONS, STRATEGY_TARGETS } from './core/game';
 import type { Save, BattleUnit, BattleResult, BattleEvent, StrategyRule } from './core/game';
 import { stageFocus, stageCell, stageCover, preparationBackdrop, stageBackdrop } from './presentation/BattleStage';
 import type { StageFocus } from './presentation/BattleStage';
+import { supportsTypeface } from './presentation/Typeface';
 import { LocalSaveStore } from './infrastructure/LocalSaveStore';
 const { ccclass, property } = _decorator;
 const INK = '#102a31', GOLD = '#d6b979', PAPER = '#f4e7c8';
@@ -12,6 +13,12 @@ const STORE = 'taichu-lingqi-v1';
 export class GameApp extends Component {
   @property startInGame = false;
   private static session: { store: LocalSaveStore; save: Save; state: 'saved'|'unsaved'|'session'; error?: string } | null = null;
+  private viewportLayouts = new Map<Node, () => void>();
+  private displayFont: TTFFont | null = null;
+  private fontLabels = new Set<Label>();
+  private fontLoading = false;
+  private fontFailed = false;
+  private fontRequest = 0;
   private root!: Node;
   private backgroundLayer: Node | null = null;
   private store!: LocalSaveStore;
@@ -133,6 +140,7 @@ export class GameApp extends Component {
     }
   }
   onLoad() {
+    screen.on('window-resize', this.resizePresentation, this);
     view.setDesignResolutionSize(720, 1280, ResolutionPolicy.SHOW_ALL);
     const canvasNode = this.make('Canvas', this.node, 0, 0, 720, 1280);
     const canvas = canvasNode.addComponent(Canvas);
@@ -150,6 +158,8 @@ export class GameApp extends Component {
     else { this.store = new LocalSaveStore(sys.localStorage, STORE); this.load(); }
   }
   onDestroy() {
+    screen.off('window-resize', this.resizePresentation, this); this.viewportLayouts.clear();
+    this.fontRequest++; this.clearFontLabels(); this.displayFont?.decRef(); this.displayFont = null;
     this.generation++; this.displayGeneration++; this.presentationSerial++; this.presentationRequests.clear(); this.wantedPresentation.clear();
     this.swordRequest++; this.swordLoading = false; this.unscheduleAllCallbacks();
     if (this.root && isValid(this.root)) { this.root.active = false; this.detachSpriteFrames(this.root); }
@@ -226,6 +236,31 @@ export class GameApp extends Component {
     l.horizontalAlign = Label.HorizontalAlign.CENTER; l.verticalAlign = Label.VerticalAlign.CENTER;
     l.overflow = Label.Overflow.SHRINK; return l;
   }
+  private clearFontLabels() {
+    for (const label of this.fontLabels) if (isValid(label, true) && isValid(label.node, true)) label.font = null;
+    this.fontLabels.clear();
+  }
+  private displayTypeface(label: Label) {
+    if (!supportsTypeface(label.string)) return label;
+    for (const old of this.fontLabels) if (!this.presentationAlive(old.node, this.displayGeneration) || !isValid(old, true)) this.fontLabels.delete(old);
+    this.fontLabels.add(label);
+    const apply = (target: Label) => {
+      if (!this.displayFont || !isValid(target, true) || !this.presentationAlive(target.node, this.displayGeneration) || !supportsTypeface(target.string)) return;
+      target.font = this.displayFont; target.isBold = false;
+      if (target.enableOutline) target.outlineWidth = 1;
+    };
+    if (this.displayFont) { apply(label); return label; }
+    if (this.fontLoading || this.fontFailed) return label;
+    this.fontLoading = true; const request = ++this.fontRequest;
+    resources.load('fonts/TaichuUISerifSubset-SemiBold', TTFFont, (error, font) => {
+      if (request !== this.fontRequest || !isValid(this, true)) return;
+      this.fontLoading = false;
+      if (error || !font || !isValid(font)) { this.fontFailed = true; return; }
+      font.addRef(); this.displayFont = font;
+      for (const current of this.fontLabels) apply(current);
+    });
+    return label;
+  }
   private ribbon(parent: Node, x: number, y: number, w: number, h: number, primary = false) {
     const n = this.make('JadeFrame', parent, x, y, w, h); const g = n.addComponent(Graphics);
     const bevel = Math.min(13, h / 4);
@@ -254,12 +289,15 @@ export class GameApp extends Component {
   private button(parent: Node, value: string, x: number, y: number, w: number, action: () => void, active = true) {
     const primary = value === '开始战斗' || value === '踏入仙途';
     const n = this.ribbon(parent, x, y, w, 80, primary);
-    const label = this.shadowText(n, value, 0, 0, primary ? 28 : 24, active ? PAPER : '#82918f', w - 22);
+    const label = this.shadowText(n, value, 0, 0, primary ? 32 : 24, active ? PAPER : '#82918f', w - 22);
     label.isBold = primary;
+    if (primary) this.displayTypeface(label);
     const button = n.addComponent(Button); button.transition = Button.Transition.NONE; button.interactable = active;
     n.on(Button.EventType.CLICK, () => { if (active && !this.running && isValid(n, true)) action(); }); return n;
   }
   private clear() {
+    this.viewportLayouts.clear();
+    this.clearFontLabels(); this.fontFailed = false;
     if (this.backgroundLayer) {
       for (const child of [...this.backgroundLayer.children]) { this.detachSpriteFrames(child); child.destroy(); }
       this.backgroundLayer.removeAllChildren(); this.backgroundLayer.active = true;
@@ -267,6 +305,18 @@ export class GameApp extends Component {
     this.displayGeneration++; this.backgroundSerial++; this.unitArtReady.clear(); this.unitArtFailed.clear(); const clip = this.root.getComponent(Mask); if (clip) clip.enabled = true; this.stageMode = false; this.stageLayer = null; this.stageUnits = []; this.stagePlacements.clear(); this.stageLabels.clear(); this.miniPortraits.clear(); this.miniMarkers.clear(); this.stageNames = null; this.stageCommander = null; this.generation++; this.unitActors.clear(); for (const child of [...this.root.children]) {
       this.detachSpriteFrames(child); child.destroy();
     } this.root.removeAllChildren(); this.modal = null; this.saveStatusLabel = null; this.unitNodes.clear(); this.hpLabels.clear(); this.hpBars.clear(); this.unitPortraits.clear(); this.unitMarkers.clear(); this.feedbackLabels.clear(); this.unitHealth.clear(); this.unitEnergy.clear(); }
+  private viewportLayout(node: Node, layout: () => void) {
+    this.viewportLayouts.set(node, layout); layout();
+  }
+  private resizePresentation() {
+    if (!isValid(this, true)) return;
+    const size = screen.windowSize;
+    if (size.width <= 0 || size.height <= 0) return;
+    for (const [node, layout] of this.viewportLayouts) {
+      if (!this.presentationAlive(node, this.displayGeneration)) this.viewportLayouts.delete(node);
+      else layout();
+    }
+  }
   private background(region = 0) {
     const generation = this.displayGeneration, request = ++this.backgroundSerial, name = preparationBackdrop(region);
     const parent = this.backgroundLayer || this.root;
@@ -274,34 +324,45 @@ export class GameApp extends Component {
     const backgrounds = ['battle-bamboo-portrait', 'battle-temple-portrait', 'battle-underworld-portrait', 'battle-bamboo', 'battle-temple'];
     for (const old of parent.children.filter(child => child.name === 'BackgroundArt')) { this.detachSpriteFrames(old); old.destroy(); }
     for (const key of backgrounds) if (key !== name) { this.spellFrames.get(key)?.decRef(); this.spellFrames.delete(key); }
-    this.box(parent, 0, 0, cover.width, cover.height, '#142c32', '#142c32');
+    const base = this.box(parent, 0, 0, cover.width, cover.height, '#142c32', '#142c32');
+    this.viewportLayout(base, () => {
+      const size = screen.windowSize, bounds = stageCover(size.width, size.height);
+      base.getComponent(UITransform)!.setContentSize(bounds.width, bounds.height);
+      const graphic = base.getComponent(Graphics);
+      if (graphic) { graphic.clear(); graphic.rect(-bounds.width / 2, -bounds.height / 2, bounds.width, bounds.height); graphic.fill(); }
+    });
     const art = this.make('BackgroundArt', parent, 0, 0, cover.width, cover.height);
     const alive = () => request === this.backgroundSerial && this.presentationAlive(art, generation);
     const apply = (sf: SpriteFrame, portrait: boolean, key: string) => {
       if (!alive()) return;
       this.cachePresentationFrame(key, sf);
       const sp = art.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = sf;
+      this.viewportLayout(art, () => {
+      const size = screen.windowSize, cover = stageCover(size.width, size.height);
       const scale = portrait ? Math.max(cover.width / sf.originalSize.width, cover.height / sf.originalSize.height)
         : Math.max(cover.width / sf.originalSize.width, cover.height / (sf.originalSize.height * .25));
       art.getComponent(UITransform)!.setContentSize(sf.originalSize.width * scale, sf.originalSize.height * scale);
       art.setPosition(0, portrait ? 0 : -cover.height / 2 + sf.originalSize.height * scale / 2);
+      });
     };
     const legacyKey = region % 2 ? 'battle-temple' : 'battle-bamboo';
     const legacy = () => resources.load(`art/${legacyKey}/spriteFrame`, SpriteFrame, (err, sf) => { if (!err) apply(sf, false, legacyKey); });
     resources.load(`art/${name}/spriteFrame`, SpriteFrame, (err, sf) => { if (!alive()) return; if (err) legacy(); else apply(sf, true, name); });
   }
   private edgeVeil(parent: Node, top: boolean, depth = 200) {
-    const windowSize = screen.windowSize, cover = stageCover(windowSize.width, windowSize.height);
-    depth += (cover.height - 1280) / 2;
     const n = this.make(top ? 'TopVignette' : 'BottomVignette', parent, 0, 0); const g = n.addComponent(Graphics);
-    // One design-pixel sample, without overlapping alpha rectangles. The former
-    // sixteen 20–27px bands and +1px overlaps produced visible steps and seams.
-    const samples = Math.max(1, Math.ceil(depth)), strip = depth / samples;
-    for (let i = 0; i < samples; i++) {
-      const opacity = Math.round(225 * Math.pow(1 - (i + .5) / samples, 2));
-      g.fillColor = new Color(8, 24, 30, opacity);
-      g.rect(-cover.width / 2, top ? cover.height / 2 - (i + 1) * strip : -cover.height / 2 + i * strip, cover.width, strip); g.fill();
-    }
+    this.viewportLayout(n, () => {
+      const windowSize = screen.windowSize, cover = stageCover(windowSize.width, windowSize.height);
+      const extent = depth + (cover.height - 1280) / 2;
+      const samples = Math.max(1, Math.ceil(extent)), strip = extent / samples;
+      g.clear();
+      // Contiguous one-design-pixel samples, redrawn without accumulating geometry.
+      for (let i = 0; i < samples; i++) {
+        const opacity = Math.round(225 * Math.pow(1 - (i + .5) / samples, 2));
+        g.fillColor = new Color(8, 24, 30, opacity);
+        g.rect(-cover.width / 2, top ? cover.height / 2 - (i + 1) * strip : -cover.height / 2 + i * strip, cover.width, strip); g.fill();
+      }
+    });
   }
   private login() {
     this.clear(); this.background(); this.edgeVeil(this.backgroundLayer || this.root, true, 240);
@@ -314,13 +375,17 @@ export class GameApp extends Component {
     resources.load('art/commander/spriteFrame', SpriteFrame, (err, sf) => {
       if (!err && this.presentationAlive(portrait, generation)) {
         this.cachePresentationFrame('commander', sf);
-        const scale = portraitHeight / sf.originalSize.height;
         const sp = portrait.getComponent(Sprite) || portrait.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = sf;
+        this.viewportLayout(portrait, () => {
+        const size = screen.windowSize, bounds = stageCover(size.width, size.height);
+        const height = 340 + bounds.height / 2 + 80, scale = height / sf.originalSize.height;
         portrait.getComponent(UITransform)!.setContentSize(sf.originalSize.width * scale, sf.originalSize.height * scale);
+        portrait.setPosition(-20, 340 - height / 2);
+        });
       }
     });
     this.edgeVeil(this.backgroundLayer || this.root, false, 380);
-    this.shadowText(this.root, '太 初 灵 契', 0, 490, 64, GOLD, 660);
+    this.displayTypeface(this.shadowText(this.root, '太 初 灵 契', 0, 490, 64, GOLD, 660));
     this.shadowText(this.root, '结契同道 · 以阵问天', 0, 390, 28, PAPER, 620);
     this.shadowText(this.root, '灵契仙使 · 邀君共赴山海', 0, -310, 24, PAPER, 620);
     const entry = this.button(this.root, '踏入仙途', 0, -425, 490, () => director.loadScene('Game'));
@@ -383,9 +448,12 @@ export class GameApp extends Component {
       this.cachePresentationFrame(stageKey, sf);
       loading.node.destroy(); if (this.backgroundLayer) this.backgroundLayer.active = false; if (previousBackdrop && isValid(previousBackdrop, true)) previousBackdrop.active = false;
       const sprite = backdrop.addComponent(Sprite); sprite.spriteFrame = sf; sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+      this.viewportLayout(backdrop, () => {
+      const size = screen.windowSize, cover = stageCover(size.width, size.height);
       const scale = Math.max(cover.width / sf.originalSize.width, (final ? cover.height : Math.max(1664, cover.height)) / sf.originalSize.height);
       backdrop.getComponent(UITransform)!.setContentSize(sf.originalSize.width * scale, sf.originalSize.height * scale);
       backdrop.setPosition(0, final ? 0 : 180);
+      });
     };
     const cachedStage = this.spellFrames.get(stageKey);
     if (cachedStage && isValid(cachedStage)) applyBackground(cachedStage, true);
@@ -644,7 +712,7 @@ export class GameApp extends Component {
     if (this.modal) this.modal.destroy();
     const mask = this.box(this.root, 0, 0, 720, 1280, '#142b32', '#142b32');
     mask.addComponent(BlockInputEvents);
-    this.modal = mask; this.label(mask, title, -60, 550, 30, GOLD, 470);
+    this.modal = mask; this.displayTypeface(this.label(mask, title, -60, 550, 32, GOLD, 470));
     this.saveStatusLabel = this.label(mask, this.saveDescription(), 0, -580, 20, GOLD, 640);
     this.button(mask, '关闭', 260, 550, 120, () => { this.selected = null; this.modal?.destroy(); this.modal = null; this.game(); }); return mask;
   }
@@ -673,7 +741,7 @@ export class GameApp extends Component {
     HEROES.slice(page * 6, page * 6 + 6).forEach((h, i) => {
       const owned = this.save.owned.includes(h.id); const x = i % 2 ? 165 : -165; const y = 330 - Math.floor(i / 2) * 235;
       this.box(p, x, y - 40, 306, 200, '#203b43');
-      this.label(p, h.name, x, y + 12, 27, GOLD, 280);
+      this.displayTypeface(this.label(p, h.name, x, y + 12, 32, GOLD, 280));
       this.label(p, {guard:'守御',sword:'剑修',mage:'术士',healer:'医修',archer:'灵弓'}[h.role], x, y - 35, 22, PAPER, 280);
       this.button(p, owned ? '上阵 / 替换' : '招募', x, y - 100, 270, () => {
         try { if (!owned) { this.save = recruit(this.save, h.id); this.persist(); this.recruitment(page); }

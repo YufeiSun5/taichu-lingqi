@@ -1,3 +1,4 @@
+import { supportsTypeface } from '../assets/scripts/presentation/Typeface.ts';
 // Layout contracts use a scene-graph recorder, NOT Cocos runtime or font rendering.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,7 +11,7 @@ source = stripTypeScriptTypes(source.replace(/^@ccclass\([^\n]+\)\n/gm, '').repl
  .replace(/^import[^\n]+\n/gm, '').replace('export class GameApp', 'class GameApp');
 class FakeGraphics {}
 class FakeMask { static Type = Object.freeze({ GRAPHICS_RECT: 0, GRAPHICS_ELLIPSE: 1, GRAPHICS_STENCIL: 2, SPRITE_STENCIL: 3 }); }
-const screenMock = { windowSize: {width:390,height:844} };
+const screenMock = { listeners: new Map(), on(event,fn,target){this.listeners.set(target,{event,fn});}, off(event,fn,target){const current=this.listeners.get(target);if(current?.event===event&&current.fn===fn)this.listeners.delete(target);}, emit(){for(const [target,{fn}] of this.listeners)fn.call(target);}, windowSize: {width:390,height:844} };
 class FakeSprite { static SizeMode = { CUSTOM: 0 }; }
 class FakeTransform {}
 class FakeFrame {refs=0;isValid=true;reset(info){Object.assign(this,info);}addRef(){this.refs++;}decRef(){this.refs--;}}
@@ -38,7 +39,7 @@ const makeNode=(parent=null,x=0,y=0,w=0,h=0)=>{
 const motions=[];
 const tweenMock=target=>{const steps=[];const chain={};for(const name of ['to','by','delay','call'])chain[name]=(...args)=>{steps.push({name,args});return chain;};chain.start=()=>{motions.push({target,steps});return chain;};return chain;};
 class FakeVec3 {constructor(x,y,z){Object.assign(this,{x,y,z});}}
-const GameApp = new Function('_decorator','Component','Node','resources','SpriteFrame','Graphics','Color','Sprite','UITransform','LabelOutline','Button','BlockInputEvents','UIOpacity','Texture2D','Rect','Size','Vec2','tween','Vec3','isValid','stageFocus','stageCell','stageCover','preparationBackdrop','stageBackdrop','screen','Mask',...Object.keys(core),source+'\nreturn GameApp;')({},class {},{EventType:{TOUCH_END:'tap'}},resources,FakeFrame,FakeGraphics,FakeColor,FakeSprite,FakeTransform,class {},FakeButton,class {},class {},class {},FakeRect,FakeSize,FakeVec2,tweenMock,FakeVec3,n=>!!n&&n.isValid!==false,stageFocus,stageCell,stageCover,preparationBackdrop,stageBackdrop,screenMock,FakeMask,...Object.values(core));
+const GameApp = new Function('_decorator','Component','Node','resources','SpriteFrame','Graphics','Color','Sprite','UITransform','LabelOutline','Button','BlockInputEvents','UIOpacity','Texture2D','Rect','Size','Vec2','tween','Vec3','isValid','stageFocus','stageCell','stageCover','preparationBackdrop','stageBackdrop','screen','Mask','TTFFont','supportsTypeface','Canvas','Camera','view','ResolutionPolicy','Layers',...Object.keys(core),source+'\nreturn GameApp;')({},class {},Object.assign(function(){return makeNode();},{EventType:{TOUCH_END:'tap'}}),resources,FakeFrame,FakeGraphics,FakeColor,FakeSprite,FakeTransform,class {},FakeButton,class {},class {},class {},FakeRect,FakeSize,FakeVec2,tweenMock,FakeVec3,n=>!!n&&n.isValid!==false,stageFocus,stageCell,stageCover,preparationBackdrop,stageBackdrop,screenMock,FakeMask,class {},supportsTypeface,class {},Object.assign(class {},{ProjectionType:{ORTHO:0},ClearFlag:{SOLID_COLOR:0}}),{setDesignResolutionSize(){}},{SHOW_ALL:0},{Enum:{UI_2D:0}},...Object.values(core));
 function setup(stage=1) {
  resources.loads.length=0;
  const app=new GameApp(); app.root=makeNode();app.node=makeNode(); app.save=core.createSave(); app.save.stage=stage;
@@ -557,4 +558,18 @@ test('login portrait and continuous veils extend outside safe content to actual 
   }
  }
  screenMock.windowSize={width:390,height:844};
+});
+
+test('live window resize relayouts only scenery, veils and login art; listener detaches on destroy',()=>{
+ screenMock.windowSize={width:320,height:568};const app=setup();app.isValid=true;GameApp.session={store:{},save:app.save,state:'saved'};app.renderEntry=()=>{};app.onLoad();GameApp.session=null;app.login();
+ const bgFrame=Object.assign(new FakeFrame(),{originalSize:{width:941,height:1672}}),portraitFrame=Object.assign(new FakeFrame(),{originalSize:{width:1299,height:1199}});
+ resources.loads.find(r=>r.path==='art/battle-bamboo-portrait/spriteFrame').callback(null,bgFrame);resources.loads.find(r=>r.path==='art/commander/spriteFrame').callback(null,portraitFrame);
+ const portrait=app.nodes.find(n=>n.name==='LoginCommander'),bg=app.nodes.find(n=>n.name==='BackgroundArt'),beforeCount=app.nodes.length,loads=resources.loads.length,save=structuredClone(app.save),generation=app.generation;
+ for(let i=0;i<20;i++){screenMock.windowSize=i%2?{width:390,height:932}:{width:320,height:568};screenMock.emit();const cover=stageCover(screenMock.windowSize.width,screenMock.windowSize.height);assert.ok(bg.w+1e-8>=cover.width&&bg.h+1e-8>=cover.height);assert.ok(portrait.y-portrait.h/2<=-cover.height/2-80+1e-8);assert.equal(portrait.y+portrait.h/2,340);}
+ assert.equal(app.nodes.length,beforeCount);assert.equal(resources.loads.length,loads);assert.deepEqual(app.save,save);assert.equal(app.generation,generation);
+ app.game();const units=core.simulateBattle(app.save).initialUnits;const frame=Object.assign(new FakeFrame(),{originalSize:{width:941,height:1670}});app.cachePresentationFrame('battle-bamboo-stage',frame);app.enterBattleStage(units);
+ app.running=true;app.speed=2;const token=app.generation,hp=structuredClone([...app.unitHealth]),energy=[...app.unitEnergy].map(([id,v])=>[id,v.value]),focus=structuredClone([...app.stagePlacements]);let scheduled=0;app.scheduleOnce=()=>scheduled++;
+ screenMock.windowSize={width:390,height:932};screenMock.emit();assert.equal(app.generation,token);assert.equal(app.running,true);assert.equal(app.speed,2);assert.deepEqual([...app.unitHealth],hp);assert.deepEqual([...app.stagePlacements],focus);assert.deepEqual([...app.unitEnergy].map(([id,v])=>[id,v.value]),energy);assert.equal(scheduled,0);
+ const stage=app.nodes.find(n=>n.name==='StageBackdrop'),cover=stageCover(390,932);assert.ok(stage.h+1e-8>=cover.height);assert.equal(screenMock.listeners.has(app),true);
+ app.unscheduleAllCallbacks=()=>{};app.onDestroy();assert.equal(screenMock.listeners.has(app),false);assert.equal(app.viewportLayouts.size,0);screenMock.emit();screenMock.windowSize={width:390,height:844};
 });

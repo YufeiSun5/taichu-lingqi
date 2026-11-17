@@ -1,0 +1,22 @@
+{
+  "sourceCommit": "8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5",
+  "sourceSHA256": "050080d9255a86808f2945bffac582b31ef32bc36411ce29563b4961670c66f9",
+  "sourceVersion": "Version 2.003-H1;hotconv 1.1.1;makeotfexe 2.6.0",
+  "fontCopyright": "(c) 2017-2024 Adobe (http://www.adobe.com/).",
+  "OFLFileSHA256": "5e0da210fb04058a8c0087985d2d456b931c2579811a49655721d3cf0c36b6d6",
+  "fontTools": "4.61.1",
+  "weight": 600,
+  "characterCount": 517,
+  "hanCount": 384,
+  "missing": [],
+  "sourceTextHashes": {
+    "GameApp.ts": "aeb7b590b03984024ac284d83ce58d1f73a9000df215f50fb6cda26f2cc696b6",
+    "core/game.ts": "284fe49f216ee28c6c63650420e296f5b235806082a8c97ad13b72e5c11918f6"
+  },
+  "outputBytes": 249412,
+  "outputSHA256": "b5bff97d295b06352fc2687e923b9bd22cc173c12b7e0b247afd1c6b176c114d",
+  "format": "static TrueType glyf/loca, no CFF/fvar",
+  "extraction": "Conservative superset of all printable source characters including comments, plus ASCII and common punctuation. No existing source Han characters removed.",
+  "reproduce": "python tools/fonts/build.py --source-dir /path/to/official-cache --output-dir /path/to/output",
+  "runtimeStatus": "Offline glyph rendering only; Creator import and game screenshot NOT tested"
+}
