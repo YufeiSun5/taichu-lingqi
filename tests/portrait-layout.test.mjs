@@ -1,3 +1,4 @@
+import {contactOffsets,boundedRetreat} from '../assets/scripts/presentation/ContactMotion.ts';
 import {getEncounterGuide, GUIDE_SUGGESTION_HEADING} from '../assets/scripts/presentation/EncounterGuide.ts';
 import { supportsTypeface } from '../assets/scripts/presentation/Typeface.ts';
 // Layout contracts use a scene-graph recorder, NOT Cocos runtime or font rendering.
@@ -41,7 +42,7 @@ const makeNode=(parent=null,x=0,y=0,w=0,h=0)=>{
 const motions=[];
 const tweenMock=target=>{const steps=[];const chain={};for(const name of ['to','by','delay','call'])chain[name]=(...args)=>{steps.push({name,args});return chain;};chain.start=()=>{motions.push({target,steps});return chain;};return chain;};
 class FakeVec3 {constructor(x,y,z){Object.assign(this,{x,y,z});}}
-const GameApp = new Function('_decorator','Component','Node','resources','SpriteFrame','Graphics','Color','Sprite','UITransform','LabelOutline','Button','BlockInputEvents','UIOpacity','Texture2D','Rect','Size','Vec2','tween','Vec3','isValid','stageFocus','stageCell','stageCover','preparationBackdrop','stageBackdrop','screen','Mask','TTFFont','supportsTypeface','Canvas','Camera','view','ResolutionPolicy','Layers','getEncounterGuide','GUIDE_SUGGESTION_HEADING','Label',...Object.keys(core),source+'\nreturn GameApp;')({},class {},Object.assign(function(){return makeNode();},{EventType:{TOUCH_END:'tap'}}),resources,FakeFrame,FakeGraphics,FakeColor,FakeSprite,FakeTransform,class {},FakeButton,class {},class {},class {},FakeRect,FakeSize,FakeVec2,tweenMock,FakeVec3,n=>!!n&&n.isValid!==false,stageFocus,stageCell,stageCover,preparationBackdrop,stageBackdrop,screenMock,FakeMask,class {},supportsTypeface,class {},Object.assign(class {},{ProjectionType:{ORTHO:0},ClearFlag:{SOLID_COLOR:0}}),{setDesignResolutionSize(){}},{SHOW_ALL:0},{Enum:{UI_2D:0}},getEncounterGuide,GUIDE_SUGGESTION_HEADING,FakeLabel,...Object.values(core));
+const GameApp = new Function('_decorator','Component','Node','resources','SpriteFrame','Graphics','Color','Sprite','UITransform','LabelOutline','Button','BlockInputEvents','UIOpacity','Texture2D','Rect','Size','Vec2','tween','Vec3','isValid','stageFocus','stageCell','stageCover','preparationBackdrop','stageBackdrop','screen','Mask','TTFFont','supportsTypeface','Canvas','Camera','view','ResolutionPolicy','Layers','getEncounterGuide','GUIDE_SUGGESTION_HEADING','Label','contactOffsets','boundedRetreat',...Object.keys(core),source+'\nreturn GameApp;')({},class {},Object.assign(function(){return makeNode();},{EventType:{TOUCH_END:'tap'}}),resources,FakeFrame,FakeGraphics,FakeColor,FakeSprite,FakeTransform,class {},FakeButton,class {},class {},class {},FakeRect,FakeSize,FakeVec2,tweenMock,FakeVec3,n=>!!n&&n.isValid!==false,stageFocus,stageCell,stageCover,preparationBackdrop,stageBackdrop,screenMock,FakeMask,class {},supportsTypeface,class {},Object.assign(class {},{ProjectionType:{ORTHO:0},ClearFlag:{SOLID_COLOR:0}}),{setDesignResolutionSize(){}},{SHOW_ALL:0},{Enum:{UI_2D:0}},getEncounterGuide,GUIDE_SUGGESTION_HEADING,FakeLabel,contactOffsets,boundedRetreat,...Object.values(core));
 function setup(stage=1) {
  resources.loads.length=0;
  const app=new GameApp(); app.root=makeNode();app.node=makeNode(); app.save=core.createSave(); app.save.stage=stage;
@@ -671,4 +672,32 @@ test('loss summary is left of surviving enemies; draw summary is a single line a
   if(winner==='enemy'){assert.equal(text[0].x,-155);assert.ok(text[0].x+text[0].w/2<=15);assert.equal(app.nodes.filter(alive).find(n=>n.text==='本关进度未改变').x,-155);}
   else {assert.equal(text[0].x,0);assert.equal(text[0].y,350);assert.ok(text[0].y-text[0].h/2>Math.max(...Array.from(app.stagePlacements.values()).map(p=>p.footY+p.bodyHeight)));assert.ok(text[0].y+text[0].h/2<385);}
  }
+});
+
+test('single sword contact moves art only, holds at contact and returns exactly within the existing cadence',()=>{
+ for(const speed of [1,2])for(const side of ['ally','enemy']){
+  const app=setup(14);app.game();app.isValid=true;app.speed=speed;app.swordFrames=Array.from({length:4},()=>new FakeFrame());const units=core.simulateBattle(app.save).initialUnits;app.enterBattleStage(units);
+  const actor=units.find(u=>u.side===side&&u.heroId==='sword'),target=units.find(u=>u.side!==side&&u.role==='guard');app.focusBattle(actor.uid,[target.uid]);
+  const actorRoot=app.unitNodes.get(actor.uid),targetRoot=app.unitNodes.get(target.uid),roots=[actorRoot.position,targetRoot.position],hud=app.miniPortraits.get(actor.uid).parent;const hudPosition=hud.position;
+  const timers=[];app.scheduleOnce=(fn,delay)=>timers.push({fn,time:delay});let hits=0;assert.equal(app.playSwordAction(actor.uid,()=>hits++,target.uid),true);
+  const sign=side==='ally'?1:-1,art=app.motionNodes.get(actor.uid),victim=app.motionNodes.get(target.uid);
+  app.update(.14/speed);timers.find(t=>Math.abs(t.time-.14/speed)<1e-8).fn();assert.equal(hits,1);assert.equal(art.x,sign*12);assert.equal(Math.abs(victim.x),0);
+  app.update(.045/speed);assert.equal(art.x,sign*12);assert.equal(Math.abs(victim.x),0);app.update(.035/speed);assert.ok(Math.abs(victim.x)<=6);assert.equal(Math.sign(victim.x)||sign,sign);
+  app.update(.12/speed);timers.find(t=>Math.abs(t.time-.34/speed)<1e-8).fn();assert.equal(art.x,0);assert.equal(Math.abs(victim.x),0);assert.equal(app.contactMotion,null);assert.equal(hits,1);
+  assert.deepEqual([actorRoot.position.x,actorRoot.position.y,targetRoot.position.x,targetRoot.position.y],[roots[0].x,roots[0].y,roots[1].x,roots[1].y]);assert.equal(hud.position.x,hudPosition.x);assert.equal(hud.position.y,hudPosition.y);
+ }
+});
+test('fatal contact and cancelled shots never revive a unit, change death tint or leave stale offsets',()=>{
+ const app=setup(14);app.game();app.isValid=true;app.swordFrames=Array.from({length:4},()=>new FakeFrame());const units=core.simulateBattle(app.save).initialUnits;app.enterBattleStage(units);const actor=units.find(u=>u.side==='ally'&&u.heroId==='sword'),target=units.find(u=>u.side==='enemy'&&u.heroId==='sword');app.focusBattle(actor.uid,[target.uid]);
+ app.swordPose(target.uid,0);let timers=[];app.scheduleOnce=fn=>timers.push(fn);app.playSwordAction(actor.uid,()=>app.updateHealth(target.uid,0,true),target.uid);app.update(.14);timers[0]();const deadTint=app.unitPortraits.get(target.uid).getComponent(FakeSprite).color;app.update(.08);assert.equal(app.motionNodes.get(target.uid).x,0);timers[2]();assert.equal(app.unitPortraits.get(target.uid).getComponent(FakeSprite).color,deadTint);assert.equal(app.unitHealth.get(target.uid).dead,true);
+ let hits=0;timers=[];app.playSwordAction(actor.uid,()=>hits++,target.uid);app.update(.1);const old=[...timers];app.focusBattle(actor.uid,[target.uid]);old.forEach(fn=>fn());assert.equal(hits,0);assert.equal(app.motionNodes.get(actor.uid).x,0);
+ timers=[];app.playSwordAction(actor.uid,()=>hits++,target.uid);app.update(.1);const pending=[...timers],motion=app.motionNodes.get(actor.uid);app.clear();pending.forEach(fn=>fn());assert.equal(hits,0);assert.equal(motion.x,0);assert.equal(app.motionNodes.size,0);
+});
+test('same-side support and unscoped sword effects do not acquire contact displacement',()=>{
+ const app=setup(14);app.game();app.isValid=true;app.swordFrames=Array.from({length:4},()=>new FakeFrame());const units=core.simulateBattle(app.save).initialUnits;app.enterBattleStage(units);const actor=units.find(u=>u.side==='ally'&&u.heroId==='sword'),friend=units.find(u=>u.side==='ally'&&u.heroId==='healer');app.focusBattle(actor.uid,[friend.uid]);app.playSwordAction(actor.uid,()=>{},friend.uid);assert.equal(app.contactMotion,null);app.playSwordAction(actor.uid,()=>{});assert.equal(app.contactMotion,null);
+});
+
+test('contact impact is once-only and destroy cancels both queued poses and active displacement',()=>{
+ const app=setup(14);app.game();app.isValid=true;app.swordFrames=Array.from({length:4},()=>new FakeFrame());const units=core.simulateBattle(app.save).initialUnits;app.enterBattleStage(units);const actor=units.find(u=>u.side==='ally'&&u.heroId==='sword'),target=units.find(u=>u.side==='enemy');app.focusBattle(actor.uid,[target.uid]);const timers=[];app.scheduleOnce=fn=>timers.push(fn);let hits=0;app.playSwordAction(actor.uid,()=>hits++,target.uid);
+ timers[0]();timers[0]();assert.equal(hits,1);app.update(.1);const motion=app.motionNodes.get(actor.uid);assert.ok(motion.x>0);app.unscheduleAllCallbacks=()=>{};app.onDestroy();assert.equal(motion.x,0);assert.equal(app.contactMotion,null);timers.forEach(fn=>fn());assert.equal(hits,1);
 });

@@ -80,3 +80,5 @@
 仓库外赤璃绘制候选确实减少碎织纹、形成大明暗面，但仍沿用原静态姿势且杖顶/靴底留白不足。仅允许同引擎、同身体高度/脚点、同背景和朝向的受控A/B，需亮竹林和暗寺院、与凌霄/岳沉山同屏及有无特效对照；尚未实际运行，不能替换全名册并宣称统一通过。旧动作与新待机也不得因角色同名就混用。
 
 战果与养成采用专用构图：战果保留结束的舞台与实际存活情况，不复活死者摆庆功姿势；以真实奖励、回合、存活和事件摘录传达结果，不造MVP/评分。指挥官用明确胸肩肖像窗和薄前景自然收口，不把半身原图当全身站在地面。两幅新增手绘界面材质须先检查真实透明像素和文本承载区，再在引擎验收。
+
+Current b356e30 source inventory is 24 PNGs, 41.98 MiB compressed source bytes, approximately 144.00 MiB if all were decoded once into RGBA8 (width×height×4). This is not measured resident GPU/CPU memory and does not include engine buffers, mipmaps or copies; selective loading means not all need coexist. Do not infer a mobile performance pass from build size or this calculation.

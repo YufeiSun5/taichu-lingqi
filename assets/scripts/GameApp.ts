@@ -4,6 +4,7 @@ import type { Save, BattleUnit, BattleResult, BattleEvent, StrategyRule } from '
 import { stageFocus, stageCell, stageCover, preparationBackdrop, stageBackdrop } from './presentation/BattleStage';
 import type { StageFocus } from './presentation/BattleStage';
 import { getEncounterGuide, GUIDE_SUGGESTION_HEADING } from './presentation/EncounterGuide';
+import { contactOffsets, boundedRetreat } from './presentation/ContactMotion';
 import { supportsTypeface } from './presentation/Typeface';
 import { LocalSaveStore } from './infrastructure/LocalSaveStore';
 const { ccclass, property } = _decorator;
@@ -58,6 +59,9 @@ export class GameApp extends Component {
   private swordTexture: Texture2D | null = null;
   private swordRequest = 0;
   private swordLoading = false;
+  private motionNodes = new Map<string, Node>();
+  private swordActionSerial = 0;
+  private contactMotion: { actor: string; target: string; elapsed: number; speed: number; direction: number; retreat: number } | null = null;
   private unitActors = new Map<string, { heroId: string; mirror: number; scale: number; pose?: number }>();
   private preloadSwordActions() {
     if (this.swordLoading || this.swordFrames.length === 4) return;
@@ -88,13 +92,50 @@ export class GameApp extends Component {
     portrait.setPosition((313.5 - feet[0]) * actor.scale * actor.mirror, -40 + (feet[1] - 313.5) * actor.scale);
     portrait.setScale(actor.mirror, 1, 1); actor.pose = pose; return true;
   }
-  private playSwordAction(uid: string, impact: () => void) {
+  private cancelContactMotion() {
+    this.swordActionSerial++; this.contactMotion = null;
+    for (const node of Array.from(this.motionNodes.values())) if (isValid(node, true)) node.setPosition(0, 0);
+  }
+  update(dt: number) {
+    const motion = this.contactMotion; if (!motion) return;
+    if (!isValid(this, true) || this.unitHealth.get(motion.actor)?.dead) { this.cancelContactMotion(); return; }
+    motion.elapsed += dt * motion.speed;
+    const offset = contactOffsets(motion.elapsed);
+    const actor = this.motionNodes.get(motion.actor), target = this.motionNodes.get(motion.target);
+    if (actor && isValid(actor, true)) actor.setPosition(motion.direction * offset.actor, 0);
+    if (target && isValid(target, true)) target.setPosition(this.unitHealth.get(motion.target)?.dead ? 0 : motion.direction * offset.target * motion.retreat / 6, 0);
+    if (motion.elapsed >= .34) { this.contactMotion = null; }
+  }
+  private contactRetreat(uid: string, direction: number) {
+    const unit = this.stageUnits.find(unit => unit.uid === uid), placement = this.stagePlacements.get(uid);
+    if (!unit || !placement) return 0;
+    const actor = this.unitActors.get(uid);
+    let left: number, right: number;
+    if (actor?.heroId === 'sword' && actor.pose !== undefined) {
+      const bounds = [[118,516,275],[129,454,311.5],[67,572,268],[118,513,276]][actor.pose];
+      const edges = [bounds[0],bounds[1]].map(x => placement.x + (x - bounds[2]) * actor.scale * actor.mirror);
+      left = Math.min(...edges); right = Math.max(...edges);
+    } else {
+      const art = this.fighterArt(unit.role, unit.heroId);
+      const bounds: Record<string, number[]> = { 'fighter-archer':[47,1091], 'fighter-mage':[158,980], 'fighter-blade':[92,1261], 'fighter-lotus':[170,1007], 'fighter-frost':[150,988], 'fighter-monk':[52,1150], 'fighter-guardian':[178,1022], 'fighter-healer':[129,1090], 'fighter-sword':[13,1216] };
+      const [lo,hi] = bounds[art.name], scale = placement.bodyHeight / (art.groundY - art.bodyTop), mirror = unit.side === 'ally' ? 1 : -1;
+      const edges = [lo,hi].map(x => placement.x + (x - art.groundX) * scale * mirror);
+      left = Math.min(...edges); right = Math.max(...edges);
+    }
+    return boundedRetreat(direction > 0 ? right : left, direction);
+  }
+  private playSwordAction(uid: string, impact: () => void, targetUid?: string) {
+    this.cancelContactMotion();
     if (!this.swordPose(uid, 1)) return false;
-    const token = this.generation, portrait = this.unitPortraits.get(uid)!;
-    const valid = () => token === this.generation && isValid(this, true) && isValid(portrait, true) && !this.unitHealth.get(uid)?.dead;
-    this.scheduleOnce(() => { if (valid()) { this.swordPose(uid, 2); impact(); } }, .14 / this.speed);
+    const token = this.generation, portrait = this.unitPortraits.get(uid)!, action = ++this.swordActionSerial;
+    if (this.stageMode && targetUid && this.unitHealth.get(uid)?.side !== this.unitHealth.get(targetUid)?.side && this.stagePlacements.has(targetUid)) {
+      this.contactMotion = { actor: uid, target: targetUid, elapsed: 0, speed: this.speed, direction: this.unitHealth.get(uid)?.side === 'ally' ? 1 : -1, retreat: this.contactRetreat(targetUid, this.unitHealth.get(uid)?.side === 'ally' ? 1 : -1) };
+    }
+    let impacted = false;
+    const valid = () => action === this.swordActionSerial && token === this.generation && isValid(this, true) && isValid(portrait, true) && !this.unitHealth.get(uid)?.dead;
+    this.scheduleOnce(() => { if (valid() && !impacted) { impacted = true; this.swordPose(uid, 2); impact(); } }, .14 / this.speed);
     this.scheduleOnce(() => { if (valid()) this.swordPose(uid, 3); }, .25 / this.speed);
-    this.scheduleOnce(() => { if (valid()) this.swordPose(uid, 0); }, .34 / this.speed);
+    this.scheduleOnce(() => { if (valid()) { this.swordPose(uid, 0); this.cancelContactMotion(); } }, .34 / this.speed);
     return true;
   }
   private unitArtReady = new Set<string>();
@@ -161,6 +202,7 @@ export class GameApp extends Component {
     else { this.store = new LocalSaveStore(sys.localStorage, STORE); this.load(); }
   }
   onDestroy() {
+    this.cancelContactMotion();
     screen.off('window-resize', this.resizePresentation, this); this.viewportLayouts.clear();
     this.fontRequest++; this.clearFontLabels(); this.displayFont?.decRef(); this.displayFont = null;
     this.generation++; this.displayGeneration++; this.presentationSerial++; this.presentationRequests.clear(); this.wantedPresentation.clear();
@@ -299,6 +341,7 @@ export class GameApp extends Component {
     n.on(Button.EventType.CLICK, () => { if (active && !this.running && isValid(n, true)) action(); }); return n;
   }
   private clear() {
+    this.cancelContactMotion(); this.motionNodes.clear();
     this.viewportLayouts.clear();
     this.clearFontLabels(); this.fontFailed = false;
     if (this.backgroundLayer) {
@@ -560,6 +603,7 @@ export class GameApp extends Component {
     portrait.setPosition((frame.originalSize.width / 2 - art.groundX) * scale * actor.mirror, -40 + (art.groundY - frame.originalSize.height / 2) * scale);
   }
   private focusBattle(actor?: string, targets: string[] = [], commander = false) {
+    this.cancelContactMotion();
     if (!this.stageMode) return;
     this.stagePlacements = new Map(stageFocus(this.stageUnits, actor, targets).map(item => [item.uid, item]));
     for (const [uid, node] of Array.from(this.unitNodes)) {
@@ -628,7 +672,8 @@ export class GameApp extends Component {
     const marker = this.make('EventMarker', n, 0, -40, 90, 22).addComponent(Graphics);
     this.unitMarkers.set(u.uid, marker);
     // Art, HUD and ground are separate; feedback never moves or scales the HUD.
-    const portrait = this.make('FighterArt', n, 0, 14, 90, 112); this.unitPortraits.set(u.uid, portrait);
+    const motion = this.make('FighterMotion', n, 0, 0); this.motionNodes.set(u.uid, motion);
+    const portrait = this.make('FighterArt', motion, 0, 14, 90, 112); this.unitPortraits.set(u.uid, portrait);
     const art = this.fighterArt(u.role, u.heroId), generation = this.displayGeneration;
     const loading = this.label(n, '载入角色…', 0, 15, 18, GOLD, 96);
     resources.load(`art/${art.name}/spriteFrame`, SpriteFrame, (err, sf) => {
@@ -1050,7 +1095,9 @@ export class GameApp extends Component {
           let last = index;
           while (last < result.events.length && ['attack', 'heal', 'death'].includes(result.events[last].type)) last++;
           const effects = result.events.slice(index, last), impacts = effects.map(effect => impactFor(effect, true));
-          if (effects.length && this.playSwordAction(e.actor, () => { for (const impact of impacts) impact(); })) {
+          const attacks = effects.filter(effect => effect.type === 'attack');
+          const contactTarget = attacks.length === 1 && effects.every(effect => effect.type === 'attack' || effect.type === 'death') ? attacks[0].target : undefined;
+          if (effects.length && this.playSwordAction(e.actor, () => { for (const impact of impacts) impact(); }, contactTarget)) {
             index = last;
             this.status.string = `${this.unitHealth.get(e.actor)?.side === 'ally' ? '凌霄' : '敌方凌霄'} · 起剑`;
             this.eventFeedback(e.actor);
