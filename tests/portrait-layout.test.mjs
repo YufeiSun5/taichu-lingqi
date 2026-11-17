@@ -197,7 +197,7 @@ test('battle uses a thin header and separated command bands instead of giant opa
  assert.ok(source.includes('this.root.addComponent(Mask)'),'portrait canvas clips artwork on wider views');
 });
 test('formal archer and fire mage have separate hero-identity assets',()=>{
- const app=setup();assert.equal(app.fighterArt('archer','archer').name,'fighter-archer');assert.equal(app.fighterArt('mage','mage').name,'fighter-mage');
+ const app=setup();assert.equal(app.fighterArt('archer','archer').name,'fighter-archer');assert.deepEqual(app.fighterArt('mage','mage'),{name:'fighter-mage',groundX:560,groundY:1292,bodyTop:66});assert.ok(source.includes("'fighter-mage':[134,1012]"),'contact recoil uses accepted candidate silhouette bounds');
  assert.notEqual(app.fighterArt('mage','frost').name,'fighter-mage','frost is not falsely assigned the fire-mage design');
 });
 test('close callback clears the commander overlay and preserves the save',()=>{

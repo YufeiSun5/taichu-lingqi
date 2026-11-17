@@ -42,7 +42,7 @@ test('sword safety inset does not change same-side healing or original fixed atl
 test('measured alpha silhouettes of the complete roster fit close-up and same-side healing layouts',()=>{
  // Source PNG alpha >16 bounds, not body rectangles; weapons and robes count.
  const art=[
-  ['archer',484,1389,25,47,1091],['mage',552,1285,70,158,980],
+  ['archer',484,1389,25,47,1091],['mage',560,1292,66,134,1012],
   ['blade',459,1183,20,92,1261],['lotus',504,1282,45,170,1007],
   ['frost',528,1283,42,150,988],['monk',578,1264,13,52,1150],
   ['guardian',625,1240,105,178,1022],['healer',590,1265,50,129,1090],

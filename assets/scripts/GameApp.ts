@@ -117,7 +117,7 @@ export class GameApp extends Component {
       left = Math.min(...edges); right = Math.max(...edges);
     } else {
       const art = this.fighterArt(unit.role, unit.heroId);
-      const bounds: Record<string, number[]> = { 'fighter-archer':[47,1091], 'fighter-mage':[158,980], 'fighter-blade':[92,1261], 'fighter-lotus':[170,1007], 'fighter-frost':[150,988], 'fighter-monk':[52,1150], 'fighter-guardian':[178,1022], 'fighter-healer':[129,1090], 'fighter-sword':[13,1216] };
+      const bounds: Record<string, number[]> = { 'fighter-archer':[47,1091], 'fighter-mage':[134,1012], 'fighter-blade':[92,1261], 'fighter-lotus':[170,1007], 'fighter-frost':[150,988], 'fighter-monk':[52,1150], 'fighter-guardian':[178,1022], 'fighter-healer':[129,1090], 'fighter-sword':[13,1216] };
       const [lo,hi] = bounds[art.name], scale = placement.bodyHeight / (art.groundY - art.bodyTop), mirror = unit.side === 'ally' ? 1 : -1;
       const edges = [lo,hi].map(x => placement.x + (x - art.groundX) * scale * mirror);
       left = Math.min(...edges); right = Math.max(...edges);
@@ -650,7 +650,7 @@ export class GameApp extends Component {
   // Future hero-specific illustrations supply their own anchors, not a shared crop.
   private fighterArt(role: string, heroId?: string) {
     if (heroId === 'archer') return { name: 'fighter-archer', groundX: 484, groundY: 1389, bodyTop: 25 };
-    if (heroId === 'mage') return { name: 'fighter-mage', groundX: 552, groundY: 1285, bodyTop: 70 };
+    if (heroId === 'mage') return { name: 'fighter-mage', groundX: 560, groundY: 1292, bodyTop: 66 };
     if (heroId === 'blade') return { name: 'fighter-blade', groundX: 459, groundY: 1183, bodyTop: 20 };
     if (heroId === 'lotus') return { name: 'fighter-lotus', groundX: 504, groundY: 1282, bodyTop: 45 };
     if (heroId === 'frost') return { name: 'fighter-frost', groundX: 528, groundY: 1283, bodyTop: 42 };

@@ -91,3 +91,7 @@ Shared generation specification: one original adult character, full head-to-toe 
 
 - `ui-result-letter.png`：2120×742 RGBA，SHA256 `0d42a93dc65e3ae4f4f4ed57a898a3bdec80ef7378a484b7f4ccb9b620a7da77`，UUID `ae226a25-daf0-551e-b7f2-c10a578f2255`。深玉青低噪中央、暖金线与云玉边角，无生成文字。alpha>16框(25,27)至(2095,696)，净文字区(382,200)至(1738,534)。整图620宽等比约217高，承载两条真实战报。
 - `ui-commander-trim.png`：2079×756 RGBA，SHA256 `013291453b88f8ee94726023f3e87bb4d7e9e6cf80737fc770835ccd6f6009e1`，UUID `17e83470-6646-54bc-b380-d2218dc784e5`。薄仙云与雕玉案边，无人物或文字。实际alpha>16框(63,260)至(2026,500)，源图上下透明留白保留，不将整画布拉成目标轮廓比例；整图440×160等比映射，可见薄收口约415×51，按玉案线位置与肖像窗底对齐。
+
+## 赤璃绘制语言局部修订
+
+fighter-mage.png now uses the original generated painterly candidate bytes (1199×1312 RGBA, SHA256 `8f0f36a5d2b0389c80b1ede7a8926aa518531afee03a9277b5e8500ae990aeb9`). Existing image/texture/SpriteFrame UUIDs remain unchanged. Source foot/body anchors are560/1292/66; horizontal alpha bounds134–1012. It preserves original character identity, red/gold costume, fire staff and facing, but replaces dense fabric noise with clearer cloth value masses. No offline pixel editing or resampling. Real Creator release A/B screenshots in bamboo and temple supported this narrow readability improvement, not final roster/style or animation approval.
