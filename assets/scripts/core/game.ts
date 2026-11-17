@@ -29,7 +29,7 @@ export function getStrategy(save:Save,heroId:string):StrategyRule[] {
  const role=HEROES.find(h=>h.id===heroId)?.role;
  const custom=save.strategies?.[heroId];
  if(custom)return custom.map(r=>({...r}));
- return [{skill:role==='healer'||role==='mage'||role==='archer'?'classSkill':'attack',condition:role==='healer'?'allyInjured':'always',target:role==='healer'||role==='archer'?'weakest':'front'},{skill:'attack',condition:'always',target:'front'}];
+ return [{skill:'classSkill',condition:role==='healer'?'allyInjured':'always',target:role==='healer'||role==='archer'?'weakest':'front'},{skill:'attack',condition:'always',target:'front'}];
 }
 function validateRules(rules:StrategyRule[]):void {
  if(!Array.isArray(rules)||rules.length<1||rules.length>3||rules.some(r=>!r||!STRATEGY_SKILLS.some(x=>x.id===r.skill)||!STRATEGY_CONDITIONS.some(x=>x.id===r.condition)||!STRATEGY_TARGETS.some(x=>x.id===r.target)))throw new Error('策略必须为1至3条有效规则');

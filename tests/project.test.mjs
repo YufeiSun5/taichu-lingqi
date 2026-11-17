@@ -24,7 +24,9 @@ test('art sources exist and source uses native Cocos components, not DOM', () =>
 });
 test('Creator version and resolution are explicit',()=>{
  assert.match(json('package.json').creator.version,/^3\.8\./);
- assert.equal(json('settings/v2/packages/project.json').general.designResolution.width,1280);
+ assert.equal(json('settings/v2/packages/project.json').general.designResolution.width,720);
+ assert.equal(json('settings/v2/packages/project.json').general.designResolution.height,1280);
+ assert.match(read('assets/scripts/GameApp.ts'),/setDesignResolutionSize\(720, 1280/);
 });
 
 test('every original PNG has a reproducible SpriteFrame import and matching dimensions', () => {

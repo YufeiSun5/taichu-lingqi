@@ -18,3 +18,55 @@ test('legacy save gets defaults and custom rules persist without mutation',async
 test('priority order actually changes action choice',async()=>{const {setStrategy}=await import('../assets/scripts/core/game.ts');const attack={skill:'attack',condition:'always',target:'front'},special={skill:'classSkill',condition:'always',target:'front'};const first=s=>simulateBattle(s).events.find(e=>e.actor==='ally-4'&&e.type==='attack');assert.equal(first(setStrategy(createSave(),'mage',[attack,special])).skill,'普通攻击');assert.equal(first(setStrategy(createSave(),'mage',[special,attack])).skill,'灵焰横扫');});
 test('first-round condition falls back next round and ranged back target works',async()=>{const {setStrategy}=await import('../assets/scripts/core/game.ts');let s=setStrategy(createSave(),'mage',[{skill:'classSkill',condition:'firstRound',target:'back'},{skill:'attack',condition:'always',target:'front'}]);let r=simulateBattle(s);let first=r.events.find(e=>e.actor==='ally-4'&&e.type==='attack');assert.equal(first.round,1);assert.equal(first.skill,'灵焰横扫');assert(r.events.filter(e=>e.actor==='ally-4'&&e.type==='attack'&&e.round>1).every(e=>e.skill==='普通攻击'));let ar=recruit(createSave(),'archer');ar=setFormation(ar,3,'archer');ar=setStrategy(ar,'archer',[{skill:'attack',condition:'always',target:'back'}]);r=simulateBattle(ar);first=r.events.find(e=>e.actor==='ally-3'&&e.type==='attack');assert.equal(r.initialUnits.find(u=>u.uid===first.target).col,1);});
 test('half-health heal rules never heal an above-half target',async()=>{const {setStrategy}=await import('../assets/scripts/core/game.ts');let s=createSave();s.stage=6;s=setStrategy(s,'healer',[{skill:'classSkill',condition:'allyBelowHalf',target:'weakest'},{skill:'attack',condition:'always',target:'front'}]);const r=simulateBattle(s);const state=new Map(r.initialUnits.map(u=>[u.uid,{...u}]));let count=0;for(const e of r.events){if(e.type==='heal'&&e.actor==='ally-1'){const t=state.get(e.target);assert(t.hp/t.maxHp<.5);count++;}if(e.hp!==undefined)state.get(e.target).hp=e.hp;}assert(count>0);});
+
+test('default guard and sword strategies prefer class skill with attack fallback', async () => {
+ const { getStrategy } = await import('../assets/scripts/core/game.ts');
+ const legacy = validateSave(JSON.parse(JSON.stringify(createSave())));
+ const before = JSON.stringify(legacy);
+ for (const id of ['guard', 'sword', 'monk', 'blade']) {
+  assert.deepEqual(getStrategy(legacy, id), [
+   { skill: 'classSkill', condition: 'always', target: 'front' },
+   { skill: 'attack', condition: 'always', target: 'front' },
+  ]);
+ }
+ const result = simulateBattle(legacy);
+ assert.equal(result.events.find(e => e.actor === 'ally-0' && e.type === 'attack').skill, '镇岳击');
+ assert.equal(result.events.find(e => e.actor === 'ally-3' && e.type === 'attack').skill, '破阵斩');
+ assert.equal(JSON.stringify(legacy), before);
+ assert.equal(legacy.strategies, undefined, 'legacy schema is not rewritten');
+});
+
+test('custom melee attack rules override new defaults unchanged across save reload', async () => {
+ const { getStrategy, setStrategy } = await import('../assets/scripts/core/game.ts');
+ for (const [id, uid] of [['guard', 'ally-0'], ['sword', 'ally-3']]) {
+  const rules = [{ skill: 'attack', condition: 'always', target: 'front' }];
+  const save = validateSave(JSON.parse(JSON.stringify(setStrategy(createSave(), id, rules))));
+  assert.deepEqual(getStrategy(save, id), rules);
+  assert.equal(simulateBattle(save).events.find(e => e.actor === uid && e.type === 'attack').skill, '普通攻击');
+  const returned = getStrategy(save, id); returned[0].skill = 'classSkill';
+  assert.deepEqual(getStrategy(save, id), rules, 'returned rules remain isolated copies');
+ }
+});
+
+test('normal public-API recruitment and upgrades clear first thirteen stages', async () => {
+ const { RECRUIT_COST, commanderUpgradeCost } = await import('../assets/scripts/core/game.ts');
+ let save = createSave();
+ for (let stage = 1; stage <= 13; stage++) {
+  assert.equal(save.stage, stage);
+  for (const id of ['blade', 'monk', 'lotus', 'archer', 'frost']) {
+   if (save.coins >= RECRUIT_COST && !save.owned.includes(id)) save = recruit(save, id);
+  }
+  const ids = ['monk', 'lotus', 'blade', 'frost', 'guard', 'mage', 'archer', 'sword', 'healer'].filter(id => save.owned.includes(id));
+  for (const [i, slot] of getUnlockedSlots(save.stage).entries()) {
+   if (ids[i]) save = setFormation(save, slot, ids[i]);
+  }
+  while (save.coins >= commanderUpgradeCost(save)) save = upgradeCommander(save);
+  const result = simulateBattle(save);
+  assert.equal(result.winner, 'ally', `public-API progression stalled on stage ${stage}`);
+  save = settleBattle(save, result);
+  assert.equal(save.coins >= 0, true);
+ }
+ assert.equal(save.stage, 14);
+ assert.equal(save.formation.filter(Boolean).length, 9);
+ assert.equal(save.cleared.length, 13);
+});
