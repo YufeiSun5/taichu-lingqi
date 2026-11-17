@@ -8,3 +8,5 @@
 - 已公开基线 `4b3405db38e07c286baffe3acdd0b445e0412c40`。用户随后授权继续至可试玩并推送，代码仍仅云端；本轮修复存档保护/保存结果，接入三类原创战斗角色图，不发布小游戏。
 - 本轮规则、结构、存储及用例编排测试通过 37 项；对应证据与范围见 [检查记录](docs/independent-review.md)。真实引擎和小游戏验收不能由这些测试代替。
 - 复用现有 COCOS-SETUP 的 [功能地图](COCOS-SETUP.md#feature-map) 与 [验证契约](COCOS-SETUP.md#verification-contract)，不建立第二套测试日志或任务看板。
+
+- PLAY-02：用户恢复任务并授权 Mac 会话调试，源码仍只在云端修改。Creator 3.8.8 首次运行已复现回调调度与 PNG 导入缺陷；修复及 40 项 Node 测试完成，真实复验未完成。package 的版本字段是编辑器版本，不作游戏语义版本。

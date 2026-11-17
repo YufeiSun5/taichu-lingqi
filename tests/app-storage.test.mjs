@@ -12,7 +12,7 @@ const { LocalSaveStore } = await import('../assets/scripts/infrastructure/LocalS
 let source = readFileSync(new URL('../assets/scripts/GameApp.ts', import.meta.url), 'utf8');
 source = stripTypeScriptTypes(source.replace(/^@ccclass\([^\n]+\)\n/gm, '').replace(/@property /g, ''), { mode: 'strip' });
 source = source.replace(/^import[^\n]+\n/gm, '').replace('export class GameApp', 'class GameApp');
-const GameApp = new Function('_decorator', 'Component', 'LocalSaveStore', ...Object.keys(core), source + '\nreturn GameApp;')({}, class {}, LocalSaveStore, ...Object.values(core));
+const GameApp = new Function('_decorator', 'Component', 'Node', 'LocalSaveStore', ...Object.keys(core), source + '\nreturn GameApp;')({}, class {}, { EventType: { TOUCH_END: 'touch-end' } }, LocalSaveStore, ...Object.values(core));
 function setup(raw = null) {
  GameApp.session = null;
  const values = new Map(raw === null ? [] : [['save', raw]]);
@@ -44,4 +44,35 @@ test('app session-only writes preserve unknown original and remain visibly tempo
  app.save = core.createSave(); app.saveState = 'session';
  assert.equal(app.persist(), false); assert.equal(app.saveState, 'session');
  assert.match(app.saveDescription(), /不会保存/); assert.equal(values.get('save'), 'broken source');
+});
+
+// Model the Cocos one-shot identity rule: a callback stays registered while it
+// runs, then is removed. Scheduling that SAME callback during execution updates
+// its old timer and is lost on removal. This is not a renderer acceptance test.
+function replayHarness() {
+ const { app } = setup(); app.load(); app.isValid = true;
+ app.root = {}; app.status = { string: '' };
+ app.make = () => ({ on() {}, destroy() {} });
+ app.open = () => ({}); app.label = () => ({}); app.button = () => ({});
+ const timers = new Map();
+ app.scheduleOnce = (fn, delay) => { if (!timers.has(fn)) timers.set(fn, delay); };
+ app.unscheduleAllCallbacks = () => timers.clear();
+ return { app, timers, tick() {
+  const fn = timers.keys().next().value; if (!fn) return false;
+  fn(); timers.delete(fn); return true;
+ }};
+}
+test('battle replay survives one-shot scheduler identity and settles exactly once', () => {
+ const { app, timers, tick } = replayHarness();
+ const expected = core.settleBattle(app.save, core.simulateBattle(app.save));
+ app.fight(); app.fight(); // Double tap cannot start a second replay.
+ let count = 0; while (tick()) { assert.ok(++count < 1000); }
+ assert.ok(count > 2, 'replay continues beyond its first scheduled callback');
+ assert.equal(app.running, false); assert.equal(timers.size, 0);
+ assert.deepEqual(app.save, expected); assert.equal(app.saveState, 'saved');
+});
+test('destroyed replay cannot settle a stale queued callback', () => {
+ const { app, timers } = replayHarness(); const before = structuredClone(app.save);
+ app.fight(); const pending = timers.keys().next().value; app.onDestroy(); pending();
+ assert.deepEqual(app.save, before); assert.equal(timers.size, 0);
 });

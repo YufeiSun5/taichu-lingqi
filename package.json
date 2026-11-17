@@ -1,8 +1,12 @@
 {
   "name": "taichu-lingqi",
-  "version": "0.1.0",
+  "version": "3.8.8",
   "uuid": "bcc27c8e-272f-4b37-b4a1-af93413c8b20",
-  "creator": { "version": "3.8.7" },
-  "scripts": { "test": "node --test tests/*.test.mjs" },
+  "creator": {
+    "version": "3.8.8"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  },
   "private": true
 }

@@ -316,7 +316,8 @@ export class GameApp extends Component {
           if (e.amount) { const v = this.label(target, `${e.type === 'heal' ? '+' : '-'}${e.amount}`, 0, 70, 27, e.type === 'heal' ? '#a8f0ad' : '#ffe2a2', 150); tween(v.node).by(.5, { position: new Vec3(0, 35, 0) }).call(() => v.node.destroy()).start(); }
         }
       }
-      this.scheduleOnce(advance, (e.type === 'commander' ? .65 : .38) / this.speed);
+      // A fresh callback avoids re-scheduling the currently executing one-shot timer.
+      this.scheduleOnce(() => advance(), (e.type === 'commander' ? .65 : .38) / this.speed);
     }; advance();
   }
   private spellEffect(uid: string, skill: string) {

@@ -58,3 +58,9 @@ Navigation: [project entry](../AGENTS.md), [architecture contract](../.ai/docs/a
 - Three new fighter PNGs are valid RGBA assets (guardian 1238×1271, healer 1199×1312, sword 1229×1280). The source selects by role, mirrors enemies, sets CUSTOM before assigning SpriteFrame, restores explicit dimensions and retains geometric fallback on load failure. These are reused static figures, not unique animated art for all heroes. Earlier placeholder-only statements in this report describe historical versions.
 - Remaining data limitations: localStorage read/check/write is not atomic compare-and-swap; the baseline guard reduces stale overwrite but does not guarantee simultaneous multi-instance safety. Read-back is not proof of future OS/browser durability or a successful real restart. Backups remain in the same local storage, not external recovery copies. Platform storage behavior is untested.
 - **Runtime acceptance remains blocked/unexecuted.** Creator is unavailable. The engine investigation reported socket/file-access restrictions; no successful engine page, scene import, rendered game, input journey or real save-restart test was observed. No WeChat/Douyin build, device verification, performance or final art acceptance occurred. Passing this source review supports committing the implementation, not calling it a verified playable release.
+
+## 2026-11-17 PLAY-02 首轮真实运行与修复待复验
+
+受测基线 dfaf6ea4f9fb265264def0036e445f57a8e92fff，Mac Creator 3.8.8，隔离工程副本、Chrome 无痕预览。真实按钮 Login→Game 成功；点击开始战斗后停在指挥官事件，控制台提示 `scheduler#scheduleSelector. Selector already scheduled. Updating interval`。Cocos 一次性回调执行期间仍以函数身份注册；同一回调重排被当成旧定时器更新，执行后删除。六张 PNG 默认导入为 texture，没有 spriteFrame 子资源，画面使用几何回退。未完成连续推进、存档重开和其他旅程，不称可试玩。Mac 原检出未改源码，隔离副本仅编辑器自动修改版本并生成 meta/cache。
+
+云端最小修复：以新闭包排队下一事件，原有 generation 与销毁取消保护保留；六张 PNG 按 Creator 3.8.8 官方 sprite metadata schema 显式导入，稳定 UUID、原图尺寸、不裁切；两个 package 版本字段统一 3.8.8。新增调度身份模拟和资源元数据检查，40 项 Node 测试通过。这仍不代替修复后真实运行验收。截图及控制台证据由 Mac 调试会话保存，待最终报告归档。

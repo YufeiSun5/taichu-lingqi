@@ -26,3 +26,18 @@ test('Creator version and resolution are explicit',()=>{
  assert.match(json('package.json').creator.version,/^3\.8\./);
  assert.equal(json('settings/v2/packages/project.json').general.designResolution.width,1280);
 });
+
+test('every original PNG has a reproducible SpriteFrame import and matching dimensions', () => {
+ for (const name of ['battle-bamboo','battle-temple','commander','fighter-sword','fighter-guardian','fighter-healer']) {
+  const path=`assets/resources/art/${name}.png`;
+  const bytes=readFileSync(new URL(path,root)); const meta=json(path+'.meta');
+  assert.equal(meta.userData.type,'sprite-frame');
+  const frame=meta.subMetas.f9941; const texture=meta.subMetas['6c48a'];
+  assert.equal(frame.name,'spriteFrame'); assert.equal(frame.importer,'sprite-frame');
+  assert.equal(frame.userData.rawWidth,bytes.readUInt32BE(16));
+  assert.equal(frame.userData.rawHeight,bytes.readUInt32BE(20));
+  assert.equal(frame.userData.imageUuidOrDatabaseUri,texture.uuid);
+  assert.equal(texture.userData.imageUuidOrDatabaseUri,meta.uuid);
+ }
+ assert.equal(json('package.json').version,json('package.json').creator.version);
+});
