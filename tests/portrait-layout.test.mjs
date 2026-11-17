@@ -1,3 +1,4 @@
+import {getEncounterGuide, GUIDE_SUGGESTION_HEADING} from '../assets/scripts/presentation/EncounterGuide.ts';
 import { supportsTypeface } from '../assets/scripts/presentation/Typeface.ts';
 // Layout contracts use a scene-graph recorder, NOT Cocos runtime or font rendering.
 import test from 'node:test';
@@ -10,6 +11,7 @@ let source = readFileSync(new URL('../assets/scripts/GameApp.ts', import.meta.ur
 source = stripTypeScriptTypes(source.replace(/^@ccclass\([^\n]+\)\n/gm, '').replace(/@property /g, ''), { mode: 'strip' })
  .replace(/^import[^\n]+\n/gm, '').replace('export class GameApp', 'class GameApp');
 class FakeGraphics {}
+class FakeLabel {}
 class FakeMask { static Type = Object.freeze({ GRAPHICS_RECT: 0, GRAPHICS_ELLIPSE: 1, GRAPHICS_STENCIL: 2, SPRITE_STENCIL: 3 }); }
 const screenMock = { listeners: new Map(), on(event,fn,target){this.listeners.set(target,{event,fn});}, off(event,fn,target){const current=this.listeners.get(target);if(current?.event===event&&current.fn===fn)this.listeners.delete(target);}, emit(){for(const [target,{fn}] of this.listeners)fn.call(target);}, windowSize: {width:390,height:844} };
 class FakeSprite { static SizeMode = { CUSTOM: 0 }; }
@@ -39,7 +41,7 @@ const makeNode=(parent=null,x=0,y=0,w=0,h=0)=>{
 const motions=[];
 const tweenMock=target=>{const steps=[];const chain={};for(const name of ['to','by','delay','call'])chain[name]=(...args)=>{steps.push({name,args});return chain;};chain.start=()=>{motions.push({target,steps});return chain;};return chain;};
 class FakeVec3 {constructor(x,y,z){Object.assign(this,{x,y,z});}}
-const GameApp = new Function('_decorator','Component','Node','resources','SpriteFrame','Graphics','Color','Sprite','UITransform','LabelOutline','Button','BlockInputEvents','UIOpacity','Texture2D','Rect','Size','Vec2','tween','Vec3','isValid','stageFocus','stageCell','stageCover','preparationBackdrop','stageBackdrop','screen','Mask','TTFFont','supportsTypeface','Canvas','Camera','view','ResolutionPolicy','Layers',...Object.keys(core),source+'\nreturn GameApp;')({},class {},Object.assign(function(){return makeNode();},{EventType:{TOUCH_END:'tap'}}),resources,FakeFrame,FakeGraphics,FakeColor,FakeSprite,FakeTransform,class {},FakeButton,class {},class {},class {},FakeRect,FakeSize,FakeVec2,tweenMock,FakeVec3,n=>!!n&&n.isValid!==false,stageFocus,stageCell,stageCover,preparationBackdrop,stageBackdrop,screenMock,FakeMask,class {},supportsTypeface,class {},Object.assign(class {},{ProjectionType:{ORTHO:0},ClearFlag:{SOLID_COLOR:0}}),{setDesignResolutionSize(){}},{SHOW_ALL:0},{Enum:{UI_2D:0}},...Object.values(core));
+const GameApp = new Function('_decorator','Component','Node','resources','SpriteFrame','Graphics','Color','Sprite','UITransform','LabelOutline','Button','BlockInputEvents','UIOpacity','Texture2D','Rect','Size','Vec2','tween','Vec3','isValid','stageFocus','stageCell','stageCover','preparationBackdrop','stageBackdrop','screen','Mask','TTFFont','supportsTypeface','Canvas','Camera','view','ResolutionPolicy','Layers','getEncounterGuide','GUIDE_SUGGESTION_HEADING','Label',...Object.keys(core),source+'\nreturn GameApp;')({},class {},Object.assign(function(){return makeNode();},{EventType:{TOUCH_END:'tap'}}),resources,FakeFrame,FakeGraphics,FakeColor,FakeSprite,FakeTransform,class {},FakeButton,class {},class {},class {},FakeRect,FakeSize,FakeVec2,tweenMock,FakeVec3,n=>!!n&&n.isValid!==false,stageFocus,stageCell,stageCover,preparationBackdrop,stageBackdrop,screenMock,FakeMask,class {},supportsTypeface,class {},Object.assign(class {},{ProjectionType:{ORTHO:0},ClearFlag:{SOLID_COLOR:0}}),{setDesignResolutionSize(){}},{SHOW_ALL:0},{Enum:{UI_2D:0}},getEncounterGuide,GUIDE_SUGGESTION_HEADING,FakeLabel,...Object.values(core));
 function setup(stage=1) {
  resources.loads.length=0;
  const app=new GameApp(); app.root=makeNode();app.node=makeNode(); app.save=core.createSave(); app.save.stage=stage;
@@ -50,7 +52,7 @@ function setup(stage=1) {
  app.nodes=[];app.scheduleOnce=()=>{};app.color=()=>({});app.persist=()=>true;
  app.make=(name,parent,x,y,w=0,h=0)=>{const n=makeNode(parent,x,y,w,h);n.name=name;app.nodes.push(n);return n;};
  app.box=(p,x,y,w,h)=>app.make('Panel',p,x,y,w,h);
- app.label=(p,text,x,y,size=24,color='',w=640)=>{const n=app.make('Text',p,x,y,w,size*2.5);n.text=text;n.fontSize=size;return {node:n,string:text,isValid:true};};
+ app.label=(p,text,x,y,size=24,color='',w=640)=>{const n=app.make('Text',p,x,y,w,size*2.5);n.text=text;n.fontSize=size;const label={node:n,string:text,isValid:true};n.components.set(FakeLabel,label);return label;};
  const button=app.button;app.button=function(...args){const n=button.apply(this,args);n.button=true;n.text=args[1];return n;};
  return app;
 }
@@ -578,7 +580,7 @@ test('outcome distinguishes win loss and draw using actual summary and transpare
  for(const winner of ['ally','enemy','draw']){
   const app=setup();app.game();const result=core.simulateBattle(app.save);result.winner=winner;result.rounds=7;app.lastOutcome={result,reward:winner==='ally'?45:0,advanced:winner==='ally'};app.outcome();verify(app);
   assert.equal(app.modal.name,'BattleOutcome');assert.ok(!app.modal.getComponent(FakeGraphics));const shade=app.nodes.filter(alive).find(n=>n.name==='OverlayShade').getComponent(FakeGraphics);assert.equal(shade.fillColor.a,145);
-  assert.ok(app.nodes.filter(alive).some(n=>n.text===`灵石 +${winner==='ally'?45:0}`));
+  assert.ok(app.nodes.filter(alive).some(n=>(n.text||'').startsWith(`灵石 +${winner==='ally'?45:0}`)));
   if(winner==='draw')assert.ok(app.nodes.filter(alive).some(n=>n.text==='回合上限 · 平局'));
   const excerpts=app.nodes.filter(alive).filter(n=>/^第 .* 回合 · /.test(n.text||''));assert.ok(excerpts.length<=2);for(const line of excerpts)assert.ok(result.events.some(e=>line.text===`第 ${e.round} 回合 · ${e.text}`));
  }
@@ -611,7 +613,7 @@ test('optional panel paintings preserve source ratio, paint behind text, and nev
  const result=core.simulateBattle(app.save);app.lastOutcome={result,reward:45,advanced:true};app.outcome();
  const letter=Object.assign(new FakeFrame(),{originalSize:{width:2120,height:742}});resources.loads.find(r=>r.path==='art/ui-result-letter/spriteFrame').callback(null,letter);
  const art=app.nodes.filter(alive).find(n=>n.name==='ui-result-letter');assert.equal(art.w,620);assert.equal(art.h,620*742/2120);assert.equal(art.y,-210);assert.equal(letter.refs,1);
- const reports=result.events.filter(e=>e.type==='death'||e.type==='heal').slice(-2);for(const event of reports){const text=app.nodes.filter(alive).find(n=>n.text===event.text);assert.ok(text);assert.ok(art.parent.children.indexOf(art)<art.parent.children.indexOf(text));assert.equal(text.w,500);}
+ const reports=result.events.filter(e=>e.type==='death'||e.type==='heal').slice(-2);for(const event of reports){const text=app.nodes.filter(alive).find(n=>(n.text||'').endsWith(' · '+event.text));assert.ok(text);assert.ok(art.parent.children.indexOf(art)<art.parent.children.indexOf(text.parent));assert.equal(text.w,500);}
  app.commander();const trim=Object.assign(new FakeFrame(),{originalSize:{width:2079,height:756}});resources.loads.find(r=>r.path==='art/ui-commander-trim/spriteFrame').callback(null,trim);
  const cloud=app.nodes.filter(alive).find(n=>n.name==='ui-commander-trim');assert.equal(cloud.w,440);assert.equal(cloud.h,440*756/2079);assert.equal(cloud.x,-135);assert.ok(Math.abs(cloud.y+(.5-.61)*cloud.h-(-75))<1e-9);
  const requests=resources.loads.filter(r=>r.path==='art/ui-commander-trim/spriteFrame').length;app.commander();assert.equal(resources.loads.filter(r=>r.path==='art/ui-commander-trim/spriteFrame').length,requests);assert.equal(trim.refs,1);
@@ -638,4 +640,35 @@ test('GameApp never relies on iterable spreads or iterable for-of in the product
  const bad=[].concat(new Set(['a','b']));assert.equal(bad.length,1);assert.ok(bad[0] instanceof Set);
  const map=new Map([['a',1],['b',2]]),array=Array.from(map);let sum=0;for(let i=0;i<array.length;i++)sum+=array[i][1];assert.equal(sum,3);
  assert.ok(text.includes('Array.from(this.stagePlacements.values()).sort'));
+});
+
+test('battle hints fit the unchanged status band, dismiss per stage, and never gate starting battle',()=>{
+ for(let stage=1;stage<=18;stage++){const app=setup(stage);app.save.formation[0]=null;app.game();const guide=getEncounterGuide(core.getStage(stage).encounter.lessonId),band=app.status.node.parent;
+  assert.equal(band.h,54);assert.equal(band.y,-355);assert.equal(app.status.node.w,620);assert.equal(app.status.node.fontSize,22);assert.ok(app.status.string.includes(guide.beforeBattle));assert.ok(app.status.string.startsWith('空位1 · '));assert.ok(Array.from(app.status.string).length*22<=620);
+  const row=app.nodes.filter(alive).find(n=>n.button&&n.text==='布阵');assert.ok(band.y-band.h/2>row.y+row.h/2);
+  let fights=0;app.fight=()=>fights++;app.nodes.filter(alive).find(n=>n.button&&n.text==='开始战斗').events.tap();assert.equal(fights,1);
+  const before=structuredClone(app.save);band.events.tap();assert.ok(app.status.string.includes('1 个空位'));assert.deepEqual(app.save,before);app.game();assert.ok(!app.status.string.includes(guide.beforeBattle));
+ }
+ const continuation=setup(19);continuation.game();assert.ok(!continuation.status.node.parent.events.tap);assert.ok(continuation.status.string.includes('点击角色查看详情'));
+});
+test('defeat suggestions toggle only the letter content, leaving retry and settlement untouched',()=>{
+ const app=setup(6);app.game();const result=core.simulateBattle(app.save);result.winner='enemy';app.lastOutcome={result,reward:0,advanced:false};app.saveState='unsaved';app.lastSaveError='保存失败 quota';app.outcome();verify(app);
+ const before=structuredClone(app.save),panel=app.modal,layouts=app.viewportLayouts.size,loads=resources.loads.length;let writes=0;app.persist=()=>{writes++;return false;};
+ const toggle=app.nodes.filter(alive).find(n=>n.button&&n.text===GUIDE_SUGGESTION_HEADING);assert.equal(toggle.y,-65);assert.equal(toggle.h,80);
+ toggle.events.tap();const suggestion=getEncounterGuide(core.getStage(6).encounter.lessonId).suggestion;assert.ok(app.nodes.filter(alive).some(n=>n.text===suggestion&&n.h===80));
+ assert.equal(toggle.children.find(n=>n.getComponent(FakeLabel))?.getComponent(FakeLabel).string,'查看战况');assert.ok(app.nodes.filter(alive).some(n=>n.button&&n.text==='重试保存（不重复发奖）'));
+ toggle.events.tap();assert.ok(!app.nodes.filter(alive).some(n=>n.text===suggestion));assert.equal(app.modal,panel);assert.equal(app.viewportLayouts.size,layouts);assert.equal(resources.loads.length,loads);assert.deepEqual(app.save,before);assert.equal(writes,0);verify(app);
+ const later=setup(19);later.game();const r=core.simulateBattle(later.save);r.winner='enemy';later.lastOutcome={result:r,reward:0,advanced:false};later.outcome();assert.ok(!later.nodes.filter(alive).some(n=>n.button&&n.text===GUIDE_SUGGESTION_HEADING));
+});
+test('same-name allied and enemy event targets retain facts but receive unambiguous side prefixes',()=>{
+ const app=setup(13);app.game();const result=core.simulateBattle(app.save),ally=result.initialUnits.find(u=>u.side==='ally'&&u.heroId==='healer');
+ result.initialUnits.push({...ally,uid:'enemy-same',side:'enemy'});result.events=[{type:'death',target:ally.uid,text:'苏灵音 倒下',round:2},{type:'death',target:'enemy-same',text:'苏灵音 倒下',round:2}];
+ app.lastOutcome={result,reward:0,advanced:false};app.outcome();const text=app.nodes.filter(alive).map(n=>n.text);assert.ok(text.includes('我方 · 苏灵音 倒下'));assert.ok(text.includes('敌方 · 苏灵音 倒下'));assert.ok(text.some(t=>t?.includes('我方存活')));
+});
+test('loss summary is left of surviving enemies; draw summary is a single line above both body heads',()=>{
+ for(const winner of ['enemy','draw']){const app=setup(13);app.game();const result=core.simulateBattle(app.save);app.enterBattleStage(result.initialUnits);result.winner=winner;app.lastOutcome={result,reward:0,advanced:false};app.outcome();verify(app);
+  const text=app.nodes.filter(alive).filter(n=>n.text?.includes('我方存活'));assert.equal(text.length,1);
+  if(winner==='enemy'){assert.equal(text[0].x,-155);assert.ok(text[0].x+text[0].w/2<=15);assert.equal(app.nodes.filter(alive).find(n=>n.text==='本关进度未改变').x,-155);}
+  else {assert.equal(text[0].x,0);assert.equal(text[0].y,350);assert.ok(text[0].y-text[0].h/2>Math.max(...Array.from(app.stagePlacements.values()).map(p=>p.footY+p.bodyHeight)));assert.ok(text[0].y+text[0].h/2<385);}
+ }
 });

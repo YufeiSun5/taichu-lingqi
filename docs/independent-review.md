@@ -160,3 +160,21 @@ TYPE-01 + VIEWPORT-01集成：132/132 Node全测通过。screen window-resize注
 战果改专用透明overlay、保留实际结束舞台，奖励为settle前后coins差；回合/存活/战报来自结果，无MVP虚构。保存重试只persist而不重复结算。指挥官改明确胸肩肖像窗和薄云玉案收口。两张原画等比、迟到回调/缓存持有，100次弹窗替换布局表有界通过。当前151/151 Node全测及diffcheck通过，独立审查未发现阻断云端正确性；不等同真实引擎的新UI、遭遇或正式包通过。
 
 字体扩为533字符/401汉字，255588字节，SHA256 `62629459758eb2ab9d6d7a6489f923b0146beac2e1fcf3d88874415112ef98ed`；源码字符抽取扩展presentation并排除生成Typeface自身。UUID/许可不变，新字节须实际重新导入和构建。
+
+BUILD-01只读取证补充：集成者亲自查看保存的c78正式bundle与阻断截图63。除了stageFocus的concat(Set)，焦点层级排序也出现concat(stagePlacements.values())；Typeface出现concat(text)，整串有空格时被whitespace测试误放行，纯汉字标题/按钮可能回退。旧包Map/Set for-of实际有_createForOfIteratorHelperLoose，未证实这部分已失效，统一Array.from属于加固而非已发生故障修复。预览54截图实际宋体主标题可见，不推断所有正式包字体都已正确应用。新6db仍须重建运行验证。
+
+对6db最终源码再次执行固定源字体构建，产物cmp逐字节一致，仍533字符、SHA256 62629459758eb2ab9d6d7a6489f923b0146beac2e1fcf3d88874415112ef98ed；新增原画接线及Array.from修复未引入字库缺口。
+
+## 6dbbc40 正式发布模式首场闭环
+
+Mac隔离Creator3.8.8同步精确6db，导入及postimport真实声明TS均exit0，assets/meta零漂移，TTF导入字节与源码SHA一致。官方构建面板debug:false、VConsole关闭、竖屏、Login入口与Login/Game双场景，发布模式重编引擎并构建成功；通过官方Run运行导出包，不是编辑器preview。
+
+普通Chrome独立既有测试档3关/175灵石，实际开战完成至战果页：5回合、我方4/4、灵石+55，进入4关/230后真实浏览器Reload，重新Login→Game仍4/230，无重复奖励（证据67/68/69）。原stageFocus空场崩溃未再出现，无FPS/VConsole。未据此宣布18关新内容逐关GUI或目标平台验收。
+
+集成者亲自查看67战果与71养成：玉简两行可读，胜利统计未盖左侧存活角色；肖像胸肩窗与薄云案收口真实加载，两神通/说明/升阶未互压。但战报未写敌我，出现“我方存活4/4”同时“苏灵音倒下”（实际敌方同名），有误读风险，安排阵营前缀。该两页实拍通过基本呈现，不等于整体美术已达参考品质。
+
+正式包只读document.fonts显示TaichuUISerifSubset-SemiBold_LABEL为loaded（证据70/71）。Console有慢字体fallback加载提示；截图71另有一条红错是QA首次输入只读查询时工具丢失标点导致查询本身TypeError，随后用AX准确输入成功，非游戏异常；不隐去该真实调试痕迹，也不误计为游戏错误。
+
+### GUIDE-01 cloud review (not yet runtime accepted)
+
+Added optional per-stage preparation hints and defeat suggestions based on actual rules. Dismissal is instance-only, does not gate battle or change Save v1. Reports label target faction, defeat summaries move opposite the surviving enemy, draw summaries use a single upper line. Independent review corrected inaccessible first-death advice and misleading mandatory basic-attack fallback advice. New font: 584 characters, 273440 bytes, SHA256 `59e0afd4b7846e591fb9ce602622363cd52901c7e6f5cf3de72f1c83b318c19d`. The 6db official release was tested through natural stage-6 defeat (6/355), commander and return without spending; new GUIDE UI/font require fresh Creator release verification. Actual screenshot 78 was inspected: prior right-side statistics visibly overlap enemy healer head/chest. Moving them is a targeted fix, not full-game visual approval.

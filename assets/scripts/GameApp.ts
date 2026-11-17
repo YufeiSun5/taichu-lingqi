@@ -3,6 +3,7 @@ import { createSave, HEROES, getUnlockedSlots, getStage, simulateBattle, settleB
 import type { Save, BattleUnit, BattleResult, BattleEvent, StrategyRule } from './core/game';
 import { stageFocus, stageCell, stageCover, preparationBackdrop, stageBackdrop } from './presentation/BattleStage';
 import type { StageFocus } from './presentation/BattleStage';
+import { getEncounterGuide, GUIDE_SUGGESTION_HEADING } from './presentation/EncounterGuide';
 import { supportsTypeface } from './presentation/Typeface';
 import { LocalSaveStore } from './infrastructure/LocalSaveStore';
 const { ccclass, property } = _decorator;
@@ -50,6 +51,7 @@ export class GameApp extends Component {
   private status!: Label;
   private generation = 0;
   private displayGeneration = 0;
+  private dismissedGuides = new Set<number>();
   private resultAwarded = false;
   private lastOutcome: { result: BattleResult; reward: number; advanced: boolean } | null = null;
   private swordFrames: SpriteFrame[] = [];
@@ -423,7 +425,17 @@ export class GameApp extends Component {
     this.edgeVeil(this.backgroundLayer || this.root, false, 280);
     const empty = getUnlockedSlots(this.save.stage).filter(i => !this.save.formation[i]).length;
     const statusBand = this.ribbon(this.root, 0, -355, 660, 54);
-    this.status = this.shadowText(statusBand, empty ? `已解锁 ${getUnlockedSlots(this.save.stage).length} 阵位 · ${empty} 个空位可上阵` : '战前布阵 · 点击角色查看详情', 0, 0, 22, PAPER, 620);
+    const regularStatus = empty ? `已解锁 ${getUnlockedSlots(this.save.stage).length} 阵位 · ${empty} 个空位可上阵` : '战前布阵 · 点击角色查看详情';
+    const guide = getEncounterGuide(stage.encounter.lessonId);
+    const showGuide = guide && !this.dismissedGuides.has(stage.number);
+    this.status = this.shadowText(statusBand, showGuide ? `${empty ? `空位${empty} · ` : ''}${guide.beforeBattle}` : regularStatus, 0, 0, 22, PAPER, 620);
+    if (showGuide) {
+      const status = this.status;
+      statusBand.on(Node.EventType.TOUCH_END, () => {
+        if (this.running || !isValid(statusBand, true)) return;
+        this.dismissedGuides.add(stage.number); status.string = regularStatus;
+      });
+    }
     this.button(this.root, '布阵', -246, -425, 146, () => this.formation());
     this.button(this.root, '招募', -82, -425, 146, () => this.recruitment());
     this.button(this.root, '指挥官', 82, -425, 146, () => this.commander());
@@ -859,16 +871,42 @@ export class GameApp extends Component {
     const p = this.artOverlay('BattleOutcome');
     this.shadowText(p, `${getStage(result.stage).encounter.title} · 第 ${result.stage} 关`, 0, 550, 26, PAPER, 620);
     this.paintedHeading(p, result.winner === 'ally' ? '破阵成功' : result.winner === 'draw' ? '回合上限 · 平局' : '暂且整备，再战', 435);
-    this.shadowText(p, `灵石 +${reward}`, 155, 285, 40, GOLD, 310);
     const allies = result.units.filter(unit => unit.side === 'ally');
-    this.shadowText(p, `${result.rounds} 回合 · 存活 ${allies.filter(unit => unit.hp > 0).length}/${allies.length}`, 155, 205, 25, PAPER, 340);
-    this.shadowText(p, advanced ? `下一关 · 第 ${this.save.stage} 关` : '本关进度未改变', 155, 135, 24, PAPER, 340);
+    const survival = `我方存活 ${allies.filter(unit => unit.hp > 0).length}/${allies.length}`;
+    if (result.winner === 'draw') {
+      this.shadowText(p, `灵石 +${reward} · ${result.rounds} 回合 · ${survival}`, 0, 350, 22, PAPER, 620);
+    } else {
+      const summaryX = result.winner === 'enemy' ? -155 : 155;
+      this.shadowText(p, `灵石 +${reward}`, summaryX, 285, 40, GOLD, 310);
+      this.shadowText(p, `${result.rounds} 回合 · ${survival}`, summaryX, 205, 25, PAPER, 340);
+      this.shadowText(p, advanced ? `下一关 · 第 ${this.save.stage} 关` : '本关进度未改变', summaryX, 135, 24, PAPER, 340);
+    }
     // Actual event excerpts only; no inferred MVP, fabricated score or repeated settlement.
     const reports = result.events.filter(event => event.type === 'death' || event.type === 'heal');
     const excerpts = (reports.length ? reports : result.events.filter(event => event.type === 'attack' || event.type === 'commander')).slice(-2);
     this.panelArtwork(p, 'ui-result-letter', 0, -210, 620);
-    this.shadowText(p, '战况', 0, -80, 28, GOLD, 600);
-    excerpts.forEach((event, index) => this.shadowText(p, event.text, 0, -180 - index * 60, 24, PAPER, 500));
+    const reportBody = this.make('OutcomeReportBody', p, 0, 0);
+    const guide = result.winner !== 'ally' ? getEncounterGuide(getStage(result.stage).encounter.lessonId) : null;
+    const renderReport = (suggestion: boolean) => {
+      for (const child of reportBody.children) child.destroy(); reportBody.removeAllChildren();
+      if (suggestion && guide) {
+        const tip = this.shadowText(reportBody, guide.suggestion, 0, -210, 24, PAPER, 500);
+        tip.node.getComponent(UITransform)!.setContentSize(500, 80);
+      } else excerpts.forEach((event, index) => {
+        const side = result.initialUnits.find(unit => unit.uid === event.target)?.side;
+        const prefix = side === 'ally' ? '我方 · ' : side === 'enemy' ? '敌方 · ' : '';
+        this.shadowText(reportBody, prefix + event.text, 0, -180 - index * 60, 24, PAPER, 500);
+      });
+    };
+    renderReport(false);
+    if (guide) {
+      let showingSuggestion = false;
+      const toggle = this.button(p, GUIDE_SUGGESTION_HEADING, 0, -65, 260, () => {
+        showingSuggestion = !showingSuggestion; renderReport(showingSuggestion);
+        const label = toggle.children.map(child => child.getComponent(Label)).find(label => !!label);
+        if (label) label.string = showingSuggestion ? '查看战况' : GUIDE_SUGGESTION_HEADING;
+      });
+    } else this.shadowText(p, '战况', 0, -80, 28, GOLD, 600);
     if (this.saveState === 'unsaved') this.button(p, '重试保存（不重复发奖）', 0, -335, 560, () => { this.persist(); this.outcome(); });
     else if (result.winner !== 'ally') {
       this.button(p, '招募同道', -165, -335, 300, () => this.recruitment());
