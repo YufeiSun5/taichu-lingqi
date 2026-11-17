@@ -9,7 +9,7 @@ parser=argparse.ArgumentParser();parser.add_argument('--source-dir',type=Path,re
 p=args.output_dir;p.mkdir(parents=True,exist_ok=True);source_dir=args.source_dir
 r=Path(__file__).resolve().parents[2]/'assets/scripts'
 for name in ['OFL.txt','source-commit.txt']: (p/name).write_bytes((source_dir/name).read_bytes())
-files=[r/'GameApp.ts']+sorted((r/'core').rglob('*.ts'))
+files=[r/'GameApp.ts']+sorted((r/'core').rglob('*.ts'))+[x for x in sorted((r/'presentation').rglob('*.ts')) if x.name!='Typeface.ts']
 texts={str(x.relative_to(r)):x.read_text() for x in files}
 chars={c for c in ''.join(texts.values()) if ord(c)>=32 and c.isprintable()};chars.update(chr(c) for c in range(32,127));chars.update('，。！？：；、（）【】《》“”‘’…—·％＋－×÷→←↑↓★☆')
 chars.update('离线字体字样非游戏截图太初灵契青竹秘境幽冥古殿凌霄御剑诀出战战前布阵开始挑战返回灵契缔结剑雨破阵护盾恢复「」');chars=''.join(sorted(chars,key=ord));(p/'characters.txt').write_text(chars+'\n')

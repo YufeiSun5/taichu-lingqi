@@ -14,7 +14,9 @@ export const HEROES: Hero[] = [
  {id:'lotus',name:'莲心',role:'healer',maxHp:120,attack:35,defense:7,speed:14,color:'#efb6d5'},
 ];
 export interface Save {version:1;stage:number;coins:number;commanderLevel:number;commanderSkill:CommanderSkill;formation:(string|null)[];owned:string[];cleared:number[];strategies?:Record<string,StrategyRule[]>}
-export interface Stage {number:number;regionIndex:number;regionName:string;wave:number;enemyIds:string[]}
+export interface EnemySpawn {readonly slot:number;readonly heroId:string;readonly strategy?:readonly Readonly<StrategyRule>[]}
+export interface Encounter {readonly id:string;readonly title:string;readonly lessonId:string;readonly enemies:readonly EnemySpawn[]}
+export interface Stage {number:number;regionIndex:number;regionName:string;wave:number;enemyIds:string[];encounter:Encounter}
 export const ENERGY_MAX = 2;
 export const CLASS_SKILL_COST = 2;
 export const ATTACK_ENERGY_GAIN = 1;
@@ -45,13 +47,42 @@ export function setStrategy(save:Save,heroId:string,rules:StrategyRule[]):Save {
 export const RECRUIT_COST = 80;
 export function createSave():Save {return {version:1,stage:1,coins:80,commanderLevel:1,commanderSkill:'swordRain',formation:['guard','healer',null,'sword','mage',null,null,null,null],owned:['guard','sword','healer','mage'],cleared:[]};}
 export function getUnlockedSlots(stage:number):number[] {return stage>=13?[0,1,2,3,4,5,6,7,8]:stage>=7?[0,1,3,4,6,7]:[0,1,3,4];}
+/** Authored first eighteen encounters; immutable runtime content, never persisted in Save. */
+function encounter(number:number,title:string,lessonId:string,spawns:readonly (readonly [number,string])[],backSlots:readonly number[]=[]):Encounter {
+ const enemies=spawns.map(([slot,heroId])=>Object.freeze({slot,heroId,...(backSlots.includes(slot)?{strategy:Object.freeze([
+  Object.freeze({skill:'classSkill' as const,condition:'always' as const,target:'back' as const}),
+  Object.freeze({skill:'attack' as const,condition:'always' as const,target:'back' as const}),
+ ])}:{})}));
+ return Object.freeze({id:`encounter-${number}`,title,lessonId,enemies:Object.freeze(enemies)});
+}
+export const ENCOUNTERS:Readonly<Record<number,Encounter>>=Object.freeze({
+ 1:encounter(1,'初识灵契','energy-cycle',[[0,'sword'],[1,'mage'],[3,'guard'],[4,'archer']]),
+ 2:encounter(2,'前后有序','front-and-back',[[0,'blade'],[1,'sword'],[3,'guard'],[4,'mage']]),
+ 3:encounter(3,'截断回春','choose-target-row',[[0,'guard'],[1,'healer'],[3,'sword'],[4,'mage']]),
+ 4:encounter(4,'回春节奏','healing-cycle',[[0,'guard'],[1,'healer'],[3,'monk'],[4,'archer']]),
+ 5:encounter(5,'两种神通','commander-targets',[[0,'sword'],[1,'mage'],[3,'guard'],[4,'healer']]),
+ 6:encounter(6,'竹径试阵','bamboo-trial',[[0,'monk'],[1,'healer'],[3,'blade'],[4,'mage']]),
+ 7:encounter(7,'第三行展开','third-row',[[0,'guard'],[1,'mage'],[3,'sword'],[4,'healer'],[6,'archer']]),
+ 8:encounter(8,'横扫选行','row-sweep',[[0,'guard'],[1,'mage'],[3,'monk'],[4,'healer'],[6,'sword'],[7,'archer']]),
+ 9:encounter(9,'后阵来箭','enemy-back-target',[[0,'guard'],[1,'archer'],[3,'monk'],[4,'mage'],[6,'sword'],[7,'healer']],[1]),
+ 10:encounter(10,'救急还是早治','healing-threshold',[[0,'guard'],[1,'healer'],[3,'monk'],[4,'lotus'],[6,'archer'],[7,'mage']]),
+ 11:encounter(11,'先手与收割','rule-priority',[[0,'blade'],[1,'archer'],[3,'sword'],[4,'mage'],[6,'guard'],[7,'healer']]),
+ 12:encounter(12,'云关合阵','cloud-trial',[[0,'monk'],[1,'lotus'],[3,'blade'],[4,'frost'],[6,'guard'],[7,'archer']]),
+ 13:encounter(13,'纵深第三列','third-column',[[0,'guard'],[1,'mage'],[2,'healer'],[3,'sword'],[4,'archer'],[6,'monk'],[7,'frost']]),
+ 14:encounter(14,'层层掩护','global-front-column',[[0,'guard'],[1,'mage'],[2,'healer'],[3,'sword'],[4,'archer'],[5,'lotus'],[6,'monk'],[7,'frost'],[8,'blade']]),
+ 15:encounter(15,'疏密之间','dense-row',[[0,'monk'],[1,'healer'],[3,'guard'],[4,'mage'],[5,'archer'],[6,'sword'],[7,'lotus'],[8,'blade']]),
+ 16:encounter(16,'穿阵反制','ranged-pressure',[[0,'guard'],[1,'archer'],[2,'mage'],[3,'monk'],[4,'blade'],[5,'healer'],[6,'sword'],[7,'frost'],[8,'lotus']],[1,2]),
+ 17:encounter(17,'留力收锋','legal-half-health',[[0,'guard'],[1,'healer'],[2,'lotus'],[3,'monk'],[4,'mage'],[5,'frost'],[6,'sword'],[7,'blade'],[8,'archer']]),
+ 18:encounter(18,'三阵终试','final-trial',[[0,'monk'],[1,'lotus'],[2,'frost'],[3,'guard'],[4,'mage'],[5,'healer'],[6,'blade'],[7,'sword'],[8,'archer']]),
+});
 export function getStage(stage:number):Stage {
  if (!Number.isSafeInteger(stage)||stage<1) throw new Error('关卡编号无效');
  const regionIndex=Math.floor((stage-1)/6), wave=(stage-1)%6+1;
  const regions=['青竹幽径','云海仙山','幽冥古殿'];
- const n=stage>=13?9:stage>=7?6:4;
  const pool=['guard','sword','mage','archer','healer','frost','monk','blade','lotus'];
- return {number:stage,regionIndex,regionName:regions[regionIndex%regions.length],wave,enemyIds:Array.from({length:n},(_,i)=>pool[(i+regionIndex)%pool.length])};
+ // Beyond authored content, retain the old rotation/slots exactly; not a new chapter.
+ const content=ENCOUNTERS[stage]??encounter(stage,'延续试阵','continuation',getUnlockedSlots(stage).map((slot,i)=>[slot,pool[(i+regionIndex)%pool.length]] as const));
+ return {number:stage,regionIndex,regionName:regions[regionIndex%regions.length],wave,encounter:content,enemyIds:content.enemies.map(spawn=>spawn.heroId)};
 }
 function copy(save:Save):Save {return {...save,formation:[...save.formation],owned:[...save.owned],cleared:[...save.cleared],...(save.strategies?{strategies:Object.fromEntries(Object.entries(save.strategies).map(([id,rules])=>[id,rules.map(r=>({...r}))]))}:{})};}
 export function setFormation(save:Save,slot:number,heroId:string|null):Save {
@@ -82,12 +113,13 @@ export function validateSave(value:unknown):Save {
 function makeUnit(heroId:string,side:'ally'|'enemy',slot:number,scale:number):BattleUnit {const h=HEROES.find(x=>x.id===heroId)!;const maxHp=Math.round(h.maxHp*scale);return {energy:ENERGY_MAX,uid:`${side}-${slot}`,heroId,name:h.name,side,row:Math.floor(slot/3),col:slot%3,hp:maxHp,maxHp,attack:Math.round(h.attack*scale),defense:Math.round(h.defense*scale),speed:h.speed,role:h.role};}
 /** Produces a complete replay; UI must animate initialUnits using events, not mutate rules. */
 export function simulateBattle(input:Save):BattleResult {
- const save=validateSave(input), stage=getStage(save.stage), slots=getUnlockedSlots(save.stage);
+ const save=validateSave(input), stage=getStage(save.stage);
  const allies=save.formation.flatMap((id,i)=>id?[makeUnit(id,'ally',i,1+Math.floor((save.stage-1)/6)*.1)]:[]);
  if(allies.length===0)throw new Error('至少上阵一名队友');
  // Repeatable six-wave curve, gently increasing across regions; no random outcomes.
  const scale=.65+(stage.wave-1)*.07+Math.floor((save.stage-1)/6)*.07;
- const units=[...allies,...stage.enemyIds.map((id,i)=>makeUnit(id,'enemy',slots[i],scale))];
+ const enemyStrategies=new Map(stage.encounter.enemies.map(spawn=>[spawn.slot,spawn.strategy]));
+ const units=[...allies,...stage.encounter.enemies.map(spawn=>makeUnit(spawn.heroId,'enemy',spawn.slot,scale))];
  const initialUnits=units.map(u=>({...u})), events:BattleEvent[]=[{type:'start',round:0,text:`${stage.regionName} ${stage.wave}/6 · 战斗开始`}];
  const living=(side:string)=>units.filter(u=>u.side===side&&u.hp>0);
  function damage(target:BattleUnit,amount:number,type:'attack'|'commander',actor:string,skill:string,round:number){const actual=Math.min(target.hp,Math.max(1,Math.round(amount)));target.hp-=actual;events.push({type,actor,target:target.uid,amount:actual,skill,round,hp:target.hp,text:`${skill} · ${target.name} -${actual}`});if(target.hp===0)events.push({type:'death',target:target.uid,round,hp:0,text:`${target.name} 倒下`});}
@@ -103,7 +135,7 @@ export function simulateBattle(input:Save):BattleResult {
  for(const actor of queue){if(actor.hp<=0)continue;const foes=living(actor.side==='ally'?'enemy':'ally');if(!foes.length)break;
  const friends=living(actor.side);
 
- const rules=getStrategy(actor.side==='ally'?save:{...save,strategies:undefined},actor.heroId);
+ const rules=actor.side==='ally'?getStrategy(save,actor.heroId):(enemyStrategies.get(actor.row*3+actor.col)??getStrategy({...save,strategies:undefined},actor.heroId));
  const matches=(r:StrategyRule)=>r.condition==='always'||(r.condition==='firstRound'&&round===1)||(r.condition==='allyInjured'&&friends.some(u=>u.hp<u.maxHp))||(r.condition==='allyBelowHalf'&&friends.some(u=>u.hp/u.maxHp<.5))||(r.condition==='enemyBelowHalf'&&foes.some(u=>u.hp/u.maxHp<.5));
  const ruleIndex=rules.findIndex(r=>(r.skill==='attack'||actor.energy>=CLASS_SKILL_COST)&&matches(r)&&!(actor.role==='healer'&&r.skill==='classSkill'&&!friends.some(u=>u.hp<u.maxHp))&&(r.condition!=='enemyBelowHalf'||(actor.role==='healer'&&r.skill==='classSkill')||foes.some(u=>u.hp/u.maxHp<.5&&((actor.role==='mage'||actor.role==='archer')||u.col===Math.min(...foes.map(f=>f.col))))));
  const rule:StrategyRule=ruleIndex>=0?rules[ruleIndex]:{skill:'attack',condition:'always',target:'front'};

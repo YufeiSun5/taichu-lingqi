@@ -48,3 +48,5 @@ test('explicit display whitelist leaves mixed HP and battle log labels untouched
  assert.match(raw,/displayTypeface\(this.label\(p, h.name/);
  assert.ok(!raw.includes('displayTypeface(this.status'));assert.ok(!raw.includes('displayTypeface(this.stageLabels'));
 });
+
+test('font coverage materializes string codepoints before Creator loose spread lowering',()=>{ const module=readFileSync(new URL('../assets/scripts/presentation/Typeface.ts',import.meta.url),'utf8'); assert.match(module,/Array\.from\(text\)/); assert.ok(!module.includes('[...text]')); assert.equal(supportsTypeface('太初灵契'),true); assert.equal(supportsTypeface('龘'),false); });

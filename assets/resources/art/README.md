@@ -84,3 +84,10 @@ Shared generation specification: one original adult character, full head-to-toe 
 `battle-underworld-stage.png`：941×1672 RGB，2,311,488 bytes，SHA256 `4df83d8099c86376bdbbcb6bed9c4ad058627be1cdea8211df4f871462ecb1e5`，UUID `9c0e2753-301f-597a-8152-b80ab5807f46`。内置image_gen原创，参考本项目竹林近景镜头、重新设计蓝紫古门/悬灯/远雾，经历两轮生成，保留原始PNG字节。后沿约58.2%，70–75%连续落脚带；无角色、UI或文字。集成者已实际查看，非旧整备大空地图。门柱与人物肩部轮廓是否干扰、冷色服饰是否充分突出仍须实际引擎验收，不能由源图合格代替。
 
 `battle-temple-stage.png`：941×1670 RGB，2,988,814 bytes，SHA256 `5f9e38e9b8c87df6a1ad3f044008071d5b4466785e7d58765fc9875582c12970`，UUID `15e4fac0-8b2b-51f0-81cc-6f2179710c28`。内置image_gen原创、原始字节保存；同竹林近景机位，左巨枫、右古寺暖灯，中远景蓝紫云海/月与仙山。地面后沿约57.5%，70–75%落脚带无遮挡。集成者已实际查看，全PNG块CRC、IEND与像素解码检查通过。仍须实际角色/环境光、轮廓遮挡与文字对比验收，不是完成品截图。
+
+## 战果玉简与指挥官前景（PRESENTATION-04）
+
+两图均由内置image_gen原创生成，输入只参考本项目ui-skill-banner色系/材质，不使用参考游戏纹样；保留原始PNG字节。集成者逐张实际查看，完整PNG/meta与透明度检查通过，但尚无此批真实引擎截图。
+
+- `ui-result-letter.png`：2120×742 RGBA，SHA256 `0d42a93dc65e3ae4f4f4ed57a898a3bdec80ef7378a484b7f4ccb9b620a7da77`，UUID `ae226a25-daf0-551e-b7f2-c10a578f2255`。深玉青低噪中央、暖金线与云玉边角，无生成文字。alpha>16框(25,27)至(2095,696)，净文字区(382,200)至(1738,534)。整图620宽等比约217高，承载两条真实战报。
+- `ui-commander-trim.png`：2079×756 RGBA，SHA256 `013291453b88f8ee94726023f3e87bb4d7e9e6cf80737fc770835ccd6f6009e1`，UUID `17e83470-6646-54bc-b380-d2218dc784e5`。薄仙云与雕玉案边，无人物或文字。实际alpha>16框(63,260)至(2026,500)，源图上下透明留白保留，不将整画布拉成目标轮廓比例；整图440×160等比映射，可见薄收口约415×51，按玉案线位置与肖像窗底对齐。

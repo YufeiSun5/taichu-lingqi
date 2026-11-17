@@ -362,7 +362,7 @@ test('hand-painted skill banner fits alpha bounds rather than compressing the tr
  const banner=app.nodes.find(n=>n.name==='SkillBanner');assert.ok(Math.abs(banner.w/banner.h-3)<1e-9);assert.ok(Math.abs(banner.h*340/724-620*340/2118)<1e-9);assert.ok(banner.h>200);
 });
 test('off-camera third and ninth commander hits use their own miniatures, even after first focus dies',()=>{
- const app=setup(13);app.game();const units=core.simulateBattle(app.save).initialUnits,enemies=units.filter(u=>u.side==='enemy');app.enterBattleStage(units);
+ const app=setup(14);app.game();const units=core.simulateBattle(app.save).initialUnits,enemies=units.filter(u=>u.side==='enemy');app.enterBattleStage(units);
  app.focusBattle(undefined,enemies.map(u=>u.uid),true);app.updateHealth(enemies[0].uid,0,true);
  app.root.setPosition(17,29);app.stageLayer.setPosition(11,-7);app.spellFrames.set('fx-sword',{isValid:true,originalSize:{width:1156,height:1361}});
  for(const enemy of [enemies[2],enemies[8]]){
@@ -410,7 +410,7 @@ test('opening commander and hand-painted banner are required before the gate ope
  app.fight();assert.equal(starts,0);app.spellFrames.set('commander',new FakeFrame());queue.shift()();assert.equal(starts,0);app.spellFrames.set('ui-skill-banner',new FakeFrame());queue.shift()();assert.equal(starts,1);
 });
 test('ready stage reuses cache synchronously for commander, banner and original miniature art',()=>{
- const app=setup(13);app.game();const units=core.simulateBattle(app.save).initialUnits;
+ const app=setup(14);app.game();const units=core.simulateBattle(app.save).initialUnits;
  for(const name of [stageBackdrop(core.getStage(app.save.stage).regionIndex),'commander','ui-skill-banner',...units.map(u=>app.fighterArt(u.role,u.heroId).name)])app.spellFrames.set(name,Object.assign(new FakeFrame(),{originalSize:{width:name==='ui-skill-banner'?2172:941,height:name==='ui-skill-banner'?724:1670}}));
  const requests=resources.loads.length;app.enterBattleStage(units);assert.equal(resources.loads.length,requests,'no async re-fetch after readiness');
  assert.ok(app.nodes.find(n=>n.name==='CommanderPortrait').getComponent(FakeSprite));assert.ok(app.nodes.find(n=>n.name==='SkillBanner').getComponent(FakeSprite));
@@ -572,4 +572,70 @@ test('live window resize relayouts only scenery, veils and login art; listener d
  screenMock.windowSize={width:390,height:932};screenMock.emit();assert.equal(app.generation,token);assert.equal(app.running,true);assert.equal(app.speed,2);assert.deepEqual([...app.unitHealth],hp);assert.deepEqual([...app.stagePlacements],focus);assert.deepEqual([...app.unitEnergy].map(([id,v])=>[id,v.value]),energy);assert.equal(scheduled,0);
  const stage=app.nodes.find(n=>n.name==='StageBackdrop'),cover=stageCover(390,932);assert.ok(stage.h+1e-8>=cover.height);assert.equal(screenMock.listeners.has(app),true);
  app.unscheduleAllCallbacks=()=>{};app.onDestroy();assert.equal(screenMock.listeners.has(app),false);assert.equal(app.viewportLayouts.size,0);screenMock.emit();screenMock.windowSize={width:390,height:844};
+});
+
+test('outcome distinguishes win loss and draw using actual summary and transparent specialized layout',()=>{
+ for(const winner of ['ally','enemy','draw']){
+  const app=setup();app.game();const result=core.simulateBattle(app.save);result.winner=winner;result.rounds=7;app.lastOutcome={result,reward:winner==='ally'?45:0,advanced:winner==='ally'};app.outcome();verify(app);
+  assert.equal(app.modal.name,'BattleOutcome');assert.ok(!app.modal.getComponent(FakeGraphics));const shade=app.nodes.filter(alive).find(n=>n.name==='OverlayShade').getComponent(FakeGraphics);assert.equal(shade.fillColor.a,145);
+  assert.ok(app.nodes.filter(alive).some(n=>n.text===`灵石 +${winner==='ally'?45:0}`));
+  if(winner==='draw')assert.ok(app.nodes.filter(alive).some(n=>n.text==='回合上限 · 平局'));
+  const excerpts=app.nodes.filter(alive).filter(n=>/^第 .* 回合 · /.test(n.text||''));assert.ok(excerpts.length<=2);for(const line of excerpts)assert.ok(result.events.some(e=>line.text===`第 ${e.round} 回合 · ${e.text}`));
+ }
+});
+test('save retry reopens the same battle outcome without repeating reward or losing concrete failure',()=>{
+ const app=setup();app.save.commanderLevel=99;app.game();app.isValid=true;const before=structuredClone(app.save),expected=core.settleBattle(before,core.simulateBattle(before));let writes=0;
+ app.persist=()=>{writes++;app.saveState=writes===1?'unsaved':'saved';app.lastSaveError=writes===1?'保存失败 quota':'';return writes>1;};const queue=[];app.scheduleOnce=fn=>queue.push(fn);app.fight();while(queue.length)queue.shift()();
+ assert.deepEqual(app.save,expected);assert.equal(app.lastOutcome.reward,expected.coins-before.coins);assert.equal(writes,1);assert.ok(app.nodes.filter(alive).some(n=>n.text==='保存失败 quota'));
+ const retry=app.nodes.filter(alive).find(n=>n.text==='重试保存（不重复发奖）'&&n.button);retry.events.tap();assert.equal(writes,2);assert.deepEqual(app.save,expected);assert.equal(app.lastOutcome.reward,expected.coins-before.coins);assert.equal(app.modal.name,'BattleOutcome');
+});
+test('commander portrait window crops the source waist and keeps scene background without a full opaque modal',()=>{
+ const app=setup();app.game();const result=core.simulateBattle(app.save);app.enterBattleStage(result.initialUnits);app.cachePresentationFrame('commander',Object.assign(new FakeFrame(),{originalSize:{width:1299,height:1199}}));app.commander();verify(app);
+ assert.equal(app.modal.name,'CommanderGallery');assert.equal(app.stageLayer.active,true);assert.ok(app.stageLayer.children.filter(n=>n.active).every(n=>n.name==='StageBackdrop'));
+ const crop=app.nodes.filter(alive).find(n=>n.name==='CommanderWindow'),art=crop.children.find(n=>n.name==='CommanderPortrait');assert.ok(crop.getComponent(FakeMask));assert.ok(art.y-art.h/2<-crop.h/2);assert.ok(Math.abs(art.w/art.h-1299/1199)<1e-10);
+ const close=app.nodes.filter(alive).find(n=>n.button&&n.text==='关闭');assert.ok(close.w>=80&&close.h>=80);
+});
+test('sparse encounter enemy positions remain their declared slots in preparation and miniatures',()=>{
+ const app=setup(13);app.game();const units=core.simulateBattle(app.save).initialUnits,enemies=units.filter(u=>u.side==='enemy');assert.equal(enemies.length,7);
+ assert.deepEqual(enemies.map(u=>u.row*3+u.col),core.getStage(13).encounter.enemies.map(e=>e.slot));
+ app.enterBattleStage(units);for(const unit of enemies){const cell=app.miniPortraits.get(unit.uid).parent,expected=stageCell(unit);assert.equal(cell.x,expected.x);assert.equal(cell.y,expected.y);}
+});
+
+test('preparation and battle headings display the frozen encounter title without unverified lesson claims',()=>{
+ const app=setup(3),stage=core.getStage(3);app.game();assert.ok(app.nodes.filter(alive).some(n=>n.text===`${stage.encounter.title} · ${stage.wave} / 6`));
+ app.enterBattleStage(core.simulateBattle(app.save).initialUnits);assert.ok(app.nodes.filter(alive).some(n=>n.text===`${stage.encounter.title} · 第 3 关`));
+});
+
+test('optional panel paintings preserve source ratio, paint behind text, and never enter battle readiness',()=>{
+ const app=setup();app.game();assert.ok(!resources.loads.some(r=>/ui-result-letter|ui-commander-trim/.test(r.path)));
+ const result=core.simulateBattle(app.save);app.lastOutcome={result,reward:45,advanced:true};app.outcome();
+ const letter=Object.assign(new FakeFrame(),{originalSize:{width:2120,height:742}});resources.loads.find(r=>r.path==='art/ui-result-letter/spriteFrame').callback(null,letter);
+ const art=app.nodes.filter(alive).find(n=>n.name==='ui-result-letter');assert.equal(art.w,620);assert.equal(art.h,620*742/2120);assert.equal(art.y,-210);assert.equal(letter.refs,1);
+ const reports=result.events.filter(e=>e.type==='death'||e.type==='heal').slice(-2);for(const event of reports){const text=app.nodes.filter(alive).find(n=>n.text===event.text);assert.ok(text);assert.ok(art.parent.children.indexOf(art)<art.parent.children.indexOf(text));assert.equal(text.w,500);}
+ app.commander();const trim=Object.assign(new FakeFrame(),{originalSize:{width:2079,height:756}});resources.loads.find(r=>r.path==='art/ui-commander-trim/spriteFrame').callback(null,trim);
+ const cloud=app.nodes.filter(alive).find(n=>n.name==='ui-commander-trim');assert.equal(cloud.w,440);assert.equal(cloud.h,440*756/2079);assert.equal(cloud.x,-135);assert.ok(Math.abs(cloud.y+(.5-.61)*cloud.h-(-75))<1e-9);
+ const requests=resources.loads.filter(r=>r.path==='art/ui-commander-trim/spriteFrame').length;app.commander();assert.equal(resources.loads.filter(r=>r.path==='art/ui-commander-trim/spriteFrame').length,requests);assert.equal(trim.refs,1);
+ app.unscheduleAllCallbacks=()=>{};app.onDestroy();assert.equal(trim.refs,0);assert.equal(letter.refs,0);
+});
+test('late optional panel painting does not mutate closed panels or acquire unowned frames',()=>{
+ const app=setup();app.commander();const old=resources.loads.find(r=>r.path==='art/ui-commander-trim/spriteFrame'),oldNode=app.nodes.find(n=>n.name==='ui-commander-trim');app.commander();
+ const frame=Object.assign(new FakeFrame(),{originalSize:{width:2079,height:756}});old.callback(null,frame);assert.equal(frame.refs,0);assert.equal(oldNode.getComponent(FakeSprite),undefined);
+ const pending=resources.loads.filter(r=>r.path==='art/ui-commander-trim/spriteFrame').at(-1);app.unscheduleAllCallbacks=()=>{};app.onDestroy();pending.callback(null,frame);assert.equal(frame.refs,0);
+});
+
+test('100 modal replacements keep viewport callbacks bounded without needing resize or clear',()=>{
+ const app=setup();app.game();const base=app.viewportLayouts.size;
+ for(let i=0;i<100;i++){app.commander();assert.equal(app.viewportLayouts.size,base+1);}
+ const result=core.simulateBattle(app.save);app.lastOutcome={result,reward:0,advanced:false};
+ for(let i=0;i<100;i++){app.outcome();assert.equal(app.viewportLayouts.size,base+1);}
+ app.formation();assert.equal(app.viewportLayouts.size,base);
+});
+test('GameApp never relies on iterable spreads or iterable for-of in the production array-assuming compiler',()=>{
+ const text=readFileSync(new URL('../assets/scripts/GameApp.ts',import.meta.url),'utf8');
+ const collections=[...text.matchAll(/private (\w+) = new (?:Map|Set)[^;]*;/g)].map(m=>m[1]);assert.ok(collections.length>=10);
+ for(const name of collections){assert.ok(!new RegExp('\\.\\.\\.this\\.'+name+'\\b').test(text),name+' iterable spread');assert.ok(!new RegExp('\\bof\\s+this\\.'+name+'\\b').test(text),name+' non-array for-of');}
+ // Exact production failure shape: concat(Set) is not a list of IDs; Array.from must precede array-only downlevel loops.
+ const bad=[].concat(new Set(['a','b']));assert.equal(bad.length,1);assert.ok(bad[0] instanceof Set);
+ const map=new Map([['a',1],['b',2]]),array=Array.from(map);let sum=0;for(let i=0;i<array.length;i++)sum+=array[i][1];assert.equal(sum,3);
+ assert.ok(text.includes('Array.from(this.stagePlacements.values()).sort'));
 });

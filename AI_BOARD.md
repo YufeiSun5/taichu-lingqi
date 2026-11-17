@@ -110,3 +110,12 @@ portrait-ui独占GameApp及展示测试：把场上硬截底的指挥官半身�
 
 ### VIEWPORT-01 与 TYPE-01 同轮待测
 portrait-ui继续独占GameApp及展示测试，修复QA证实的运行中resize后背景未重铺问题；只更新视口背景、渐变与Login人物布局，不清战斗状态、推进关卡或重播动画。须测试多次resize与销毁解绑。字体已独立审查131项，集成者持有发布，待resize完整复测一起送Mac。portrait-qa独占GUI，真实正常进度16关/460灵石，下一版重点字体、实时resize及正式web-mobile包入口；其它人不抢前台。
+
+### ENCOUNTERS-01 首18关明确遭遇（基线c78cd7d）
+字体与resize已发布，Mac QA独占该不可变提交复验及正式包入口。云端继续完整游戏内容：review_runtime_fix独占core/game.ts、core/README.md及新增encounter专属测试，实现role_art已交回18关显式敌阵/少量按slot策略表，保留经济、战斗、Save v1与19关后兼容。先跑公开API真实经济路线，不给初始资源加作弊，不把18张表等同平衡通过。portrait-ui后续展示接线须先等核心接口冻结；集成者独占共享docs，暂不发布核心未审查内容。
+
+### PRESENTATION-04 战果与养成专用构图
+portrait-ui独占GameApp、展示纯模块/meta及相关展示测试，制作独立战果overlay与指挥官肖像窗，不把所有modal推倒；保留一次settle及保存失败真提示，奖励取结算前后差值，战报只读真实事件，不造MVP。vfx-art仅仓库外制作一张透明战果书札边饰和一张指挥官前景云纹收口，未经目视与alpha检查不入库。字体新增汉字需更新覆盖后接线或完整sans回退，不能为了书法造成缺字。核心遭遇接口交回后由UI再接显式敌方slot，未接完不发布。
+
+### BUILD-01 正式包兼容阻断优先修复
+c78正式web-mobile包实际开战失败，不把预览通过称包可玩。QA已取证Set spread被降成concat(Set)，云端全量非数组展开改Array.from；151测试通过仅为送测门槛，下一SHA必须重新导入/构建、官方Run验证战斗/结算/字体/resize。Mac仅QA操作者，保留无痕18/585与普通正式包3/175两份隔离档。新18关、战果/养成构图和两图一同待真实验收，未达成完整游戏品质。

@@ -85,10 +85,10 @@ test('no-spend and commander-first routes recover their first loss with earned f
   assert(failed,'fixture must actually encounter failure');
   assert.deepEqual(g.settleBattle(s,failed),s,'failure costs no money/progress');
   assert.deepEqual(g.simulateBattle(s),failed,'retry resets energy and reproduces result');
-  assert.equal(s.stage,mode==='none'?11:14);assert.equal(s.coins,mode==='none'?635:215);
+  assert.equal(s.stage,mode==='none'?6:10);assert.equal(s.coins,mode==='none'?355:215);
   if(mode==='none')while(s.coins>=g.commanderUpgradeCost(s))s=g.upgradeCommander(s);
   else for(const id of ['blade','monk','lotus'])if(s.coins>=80){s=g.recruit(s,id);s=g.setFormation(s,g.getUnlockedSlots(s.stage).find(slot=>!s.formation[slot]),id);}
   const recovered=g.simulateBattle(s);assert.equal(recovered.winner,'ally');verifyReplay(recovered);
-  assert.equal(s.coins,mode==='none'?35:55);assert.equal(g.settleBattle(s,recovered).stage,s.stage+1);
+  assert.equal(s.coins,mode==='none'?175:55);assert.equal(g.settleBattle(s,recovered).stage,s.stage+1);
  }
 });

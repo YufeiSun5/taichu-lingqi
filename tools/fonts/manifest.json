@@ -6,15 +6,16 @@
   "OFLFileSHA256": "5e0da210fb04058a8c0087985d2d456b931c2579811a49655721d3cf0c36b6d6",
   "fontTools": "4.61.1",
   "weight": 600,
-  "characterCount": 517,
-  "hanCount": 384,
+  "characterCount": 533,
+  "hanCount": 401,
   "missing": [],
   "sourceTextHashes": {
-    "GameApp.ts": "aeb7b590b03984024ac284d83ce58d1f73a9000df215f50fb6cda26f2cc696b6",
-    "core/game.ts": "284fe49f216ee28c6c63650420e296f5b235806082a8c97ad13b72e5c11918f6"
+    "GameApp.ts": "2c7e75594623547570b3b5b523a0a10b5615b9d8f98e2049c4e9de851b0f530f",
+    "core/game.ts": "cae57c63e2a291c43171b87953abcfcee1118be10cbfafaeb60c6a7bc1f07bed",
+    "presentation/BattleStage.ts": "56f6dc3115602b088e5bfc41ad24a6ac7aaf79db02a3b2d3a7a30cf08d2be632"
   },
-  "outputBytes": 249412,
-  "outputSHA256": "b5bff97d295b06352fc2687e923b9bd22cc173c12b7e0b247afd1c6b176c114d",
+  "outputBytes": 255588,
+  "outputSHA256": "62629459758eb2ab9d6d7a6489f923b0146beac2e1fcf3d88874415112ef98ed",
   "format": "static TrueType glyf/loca, no CFF/fvar",
   "extraction": "Conservative superset of all printable source characters including comments, plus ASCII and common punctuation. No existing source Han characters removed.",
   "reproduce": "python tools/fonts/build.py --source-dir /path/to/official-cache --output-dir /path/to/output",

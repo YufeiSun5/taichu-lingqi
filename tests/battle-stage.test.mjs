@@ -75,3 +75,21 @@ test('support foreground prioritizes recipient, commander targets retain first-t
  const divine=stageFocus(units,undefined,['u9','u10']);assert.ok(divine[0].footY<divine[1].footY);assert.equal(divine[0].bodyHeight,410);
  const self=stageFocus(units,'u0',['u0']);assert.equal(self.length,1);assert.equal(self[0].bodyHeight,440);
 });
+
+
+test('explicit iterable conversion avoids the observed c78 web-mobile loose-spread failure',async()=>{
+ // Exact offending expression read from Creator 3.8.8 c78 build/assets/main/index.js:25.
+ // This is a focused compiler-output regression, not a new Creator build acceptance.
+ const byId=new Map(units.map(unit=>[unit.uid,unit])),actor='u0',targets=['u9'];
+ const brokenIds=[].concat(new Set([actor].concat(targets).filter(id=>!!id&&byId.has(id)))).slice(0,2);
+ assert.equal(brokenIds.length,1);assert(brokenIds[0] instanceof Set);
+ assert.throws(()=>brokenIds.map(id=>byId.get(id)).map(unit=>unit.uid),TypeError);
+ assert.deepEqual(stageFocus(units,actor,targets).map(unit=>unit.uid),['u0','u9']);
+ assert.deepEqual(stageFocus(units,'missing',['u9','u9','missing','u10']).map(unit=>unit.uid),['u9','u10']);
+ assert.deepEqual(stageFocus(units,undefined,['missing']),[]);
+ assert.deepEqual(stageFocus(units,'u0',['u0','u0']).map(unit=>unit.uid),['u0']);
+ const {readFileSync}=await import('node:fs');
+ const source=readFileSync(new URL('../assets/scripts/presentation/BattleStage.ts',import.meta.url),'utf8');
+ assert.ok(source.includes('Array.from(new Set('),'non-array iterables must be materialized before Creator loose spread lowering');
+ assert.ok(!/\[\s*\.\.\.\s*new Set/.test(source));
+});

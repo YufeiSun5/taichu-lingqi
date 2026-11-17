@@ -51,6 +51,7 @@ export class GameApp extends Component {
   private generation = 0;
   private displayGeneration = 0;
   private resultAwarded = false;
+  private lastOutcome: { result: BattleResult; reward: number; advanced: boolean } | null = null;
   private swordFrames: SpriteFrame[] = [];
   private swordTexture: Texture2D | null = null;
   private swordRequest = 0;
@@ -72,7 +73,7 @@ export class GameApp extends Component {
         frame.packable = false; frame.addRef(); return frame;
       });
       // Never interrupt a running action or restore a dead unit on a late load.
-      if (!this.running) for (const uid of this.unitActors.keys()) this.swordPose(uid, 0);
+      if (!this.running) for (const uid of Array.from(this.unitActors.keys())) this.swordPose(uid, 0);
     });
   }
   private swordPose(uid: string, pose: number) {
@@ -119,13 +120,13 @@ export class GameApp extends Component {
     const names = [stageKey, this.save.commanderSkill === 'swordRain' ? 'fx-sword' : 'fx-fireball', 'commander', 'ui-skill-banner'];
     this.wantedPresentation = new Set(names);
     // game() has cleared/detached the previous stage nodes before dropping ownership.
-    for (const [name, frame] of this.spellFrames) {
+    for (const [name, frame] of Array.from(this.spellFrames)) {
       if ((name.endsWith('-stage') || name.startsWith('fx-')) && !this.wantedPresentation.has(name)) {
         frame.decRef(); this.spellFrames.delete(name);
       }
     }
-    for (const name of this.presentationRequests.keys()) if (!this.wantedPresentation.has(name)) this.presentationRequests.delete(name);
-    for (const name of this.presentationFailures) if (!this.wantedPresentation.has(name)) this.presentationFailures.delete(name);
+    for (const name of Array.from(this.presentationRequests.keys())) if (!this.wantedPresentation.has(name)) this.presentationRequests.delete(name);
+    for (const name of Array.from(this.presentationFailures)) if (!this.wantedPresentation.has(name)) this.presentationFailures.delete(name);
     for (const name of names) {
       const cached = this.spellFrames.get(name); if (cached && isValid(cached)) continue;
       if (retry) this.presentationRequests.delete(name);
@@ -164,7 +165,7 @@ export class GameApp extends Component {
     this.swordRequest++; this.swordLoading = false; this.unscheduleAllCallbacks();
     if (this.root && isValid(this.root)) { this.root.active = false; this.detachSpriteFrames(this.root); }
     if (this.backgroundLayer && isValid(this.backgroundLayer)) { this.backgroundLayer.active = false; this.detachSpriteFrames(this.backgroundLayer); }
-    for (const frame of this.spellFrames.values()) frame.decRef();
+    for (const frame of Array.from(this.spellFrames.values())) frame.decRef();
     this.spellFrames.clear();
     for (const frame of this.swordFrames) frame.decRef();
     this.swordFrames = []; this.swordTexture?.decRef(); this.swordTexture = null;
@@ -237,12 +238,12 @@ export class GameApp extends Component {
     l.overflow = Label.Overflow.SHRINK; return l;
   }
   private clearFontLabels() {
-    for (const label of this.fontLabels) if (isValid(label, true) && isValid(label.node, true)) label.font = null;
+    for (const label of Array.from(this.fontLabels)) if (isValid(label, true) && isValid(label.node, true)) label.font = null;
     this.fontLabels.clear();
   }
   private displayTypeface(label: Label) {
     if (!supportsTypeface(label.string)) return label;
-    for (const old of this.fontLabels) if (!this.presentationAlive(old.node, this.displayGeneration) || !isValid(old, true)) this.fontLabels.delete(old);
+    for (const old of Array.from(this.fontLabels)) if (!this.presentationAlive(old.node, this.displayGeneration) || !isValid(old, true)) this.fontLabels.delete(old);
     this.fontLabels.add(label);
     const apply = (target: Label) => {
       if (!this.displayFont || !isValid(target, true) || !this.presentationAlive(target.node, this.displayGeneration) || !supportsTypeface(target.string)) return;
@@ -257,7 +258,7 @@ export class GameApp extends Component {
       this.fontLoading = false;
       if (error || !font || !isValid(font)) { this.fontFailed = true; return; }
       font.addRef(); this.displayFont = font;
-      for (const current of this.fontLabels) apply(current);
+      for (const current of Array.from(this.fontLabels)) apply(current);
     });
     return label;
   }
@@ -312,7 +313,7 @@ export class GameApp extends Component {
     if (!isValid(this, true)) return;
     const size = screen.windowSize;
     if (size.width <= 0 || size.height <= 0) return;
-    for (const [node, layout] of this.viewportLayouts) {
+    for (const [node, layout] of Array.from(this.viewportLayouts)) {
       if (!this.presentationAlive(node, this.displayGeneration)) this.viewportLayouts.delete(node);
       else layout();
     }
@@ -413,7 +414,7 @@ export class GameApp extends Component {
     this.shadowText(top, `第 ${stage.number} 关`, 20, 0, 24, PAPER, 200);
     this.shadowText(top, `灵石 ${this.save.coins}`, 225, 0, 24, GOLD, 180);
     const chapter = this.ribbon(this.root, 0, 475, 470, 52);
-    this.shadowText(chapter, `${stage.regionName} · ${stage.wave} / 6`, 0, 0, 24, PAPER, 430);
+    this.shadowText(chapter, `${stage.encounter.title} · ${stage.wave} / 6`, 0, 0, 24, PAPER, 430);
     let battle;
     try { battle = simulateBattle(this.save); } catch { battle = { initialUnits: [] as BattleUnit[] }; }
     if (battle.initialUnits.some(unit => unit.heroId === 'sword')) this.preloadSwordActions();
@@ -494,7 +495,7 @@ export class GameApp extends Component {
     }
     const title = this.ribbon(layer, 0, 550, 460, 64);
     const stage = getStage(this.save.stage);
-    this.shadowText(title, `${stage.regionName} · 第 ${stage.number} 关`, 0, 0, 28, PAPER, 430);
+    this.shadowText(title, `${stage.encounter.title} · 第 ${stage.number} 关`, 0, 0, 28, PAPER, 430);
     this.shadowText(layer, '我 方 灵 阵', -170, -365, 24, GOLD, 280);
     this.shadowText(layer, '敌 方 灵 阵', 170, -365, 24, '#e2b6a0', 280);
     const skill = this.make('SkillBanner', layer, 0, -305, 620, 90);
@@ -549,16 +550,16 @@ export class GameApp extends Component {
   private focusBattle(actor?: string, targets: string[] = [], commander = false) {
     if (!this.stageMode) return;
     this.stagePlacements = new Map(stageFocus(this.stageUnits, actor, targets).map(item => [item.uid, item]));
-    for (const [uid, node] of this.unitNodes) {
+    for (const [uid, node] of Array.from(this.unitNodes)) {
       const placement = this.stagePlacements.get(uid); node.active = !!placement;
       if (placement) { node.setPosition(placement.x, placement.footY + 40); this.applyStageArt(uid); }
     }
-    [...this.stagePlacements.values()].sort((a, b) => b.footY - a.footY).forEach((placement, index) => this.unitNodes.get(placement.uid)?.setSiblingIndex(index));
+    Array.from(this.stagePlacements.values()).sort((a, b) => b.footY - a.footY).forEach((placement, index) => this.unitNodes.get(placement.uid)?.setSiblingIndex(index));
     if (this.stageCommander) this.stageCommander.active = commander;
     this.stageLabels.clear();
     if (this.stageNames) { for (const child of [...this.stageNames.children]) child.destroy(); this.stageNames.removeAllChildren(); }
     const nameRows = new Map<string, number[]>();
-    for (const placement of this.stagePlacements.values()) {
+    for (const placement of Array.from(this.stagePlacements.values())) {
       const unit = this.stageUnits.find(unit => unit.uid === placement.uid)!;
       let nameY = placement.footY + placement.bodyHeight + (unit.heroId === 'sword' ? 120 : 80);
       const occupied = nameRows.get(unit.side) || [];
@@ -566,7 +567,7 @@ export class GameApp extends Component {
       occupied.push(nameY); nameRows.set(unit.side, occupied);
       const label = this.shadowText(this.stageNames!, '', unit.side === 'ally' ? -175 : 175, nameY, 26, PAPER, 300); this.stageLabels.set(unit.uid, label); this.updateStageLabel(unit.uid);
     }
-    for (const [uid, marker] of this.miniMarkers) {
+    for (const [uid, marker] of Array.from(this.miniMarkers)) {
       marker.clear();
       if (uid === actor || targets.includes(uid)) {
         marker.strokeColor = this.color(uid === actor ? GOLD : '#f5c2a3'); marker.lineWidth = 2;
@@ -678,8 +679,8 @@ export class GameApp extends Component {
     }
   }
   private eventFeedback(actor?: string, target?: string, healing = false, actionSkill?: string, keepTargets = false) {
-    if (!keepTargets) for (const g of this.unitMarkers.values()) g.clear();
-    for (const label of this.feedbackLabels.values()) label.string = '';
+    if (!keepTargets) for (const g of Array.from(this.unitMarkers.values())) g.clear();
+    for (const label of Array.from(this.feedbackLabels.values())) label.string = '';
     const mark = (uid: string | undefined, text: string, color: string) => {
       if (!uid || this.unitHealth.get(uid)?.dead) return;
       const g = this.unitMarkers.get(uid); if (g) {
@@ -709,7 +710,7 @@ export class GameApp extends Component {
   }
   private open(title: string) {
     if (this.running) return null;
-    if (this.modal) this.modal.destroy();
+    if (this.modal) { this.removeViewportLayouts(this.modal); this.detachSpriteFrames(this.modal); this.modal.active = false; this.modal.destroy(); }
     const mask = this.box(this.root, 0, 0, 720, 1280, '#142b32', '#142b32');
     mask.addComponent(BlockInputEvents);
     this.modal = mask; this.displayTypeface(this.label(mask, title, -60, 550, 32, GOLD, 470));
@@ -806,27 +807,117 @@ export class GameApp extends Component {
     this.label(p, '脚下双点显示灵力。当前行动结束后更新；敌我遵循相同规则。', 0, -230, 24, '#c8d6cf', 620);
     this.button(p, '返回策略', 0, -440, 540, () => this.strategies(heroId));
   }
-  private commander() {
-    const p = this.open('指挥官 · 灵契仙使'); if (!p) return;
-    const portrait = this.make('CommanderPortrait', p, 0, 230, 470, 430), generation = this.displayGeneration;
-    resources.load('art/commander/spriteFrame', SpriteFrame, (err, sf) => {
-      if (!err && this.presentationAlive(portrait, generation)) {
-        this.cachePresentationFrame('commander', sf);
-        const sp = portrait.getComponent(Sprite) || portrait.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = sf;
-        const scale = Math.min(470 / sf.originalSize.width, 430 / sf.originalSize.height);
-        portrait.getComponent(UITransform)!.setContentSize(sf.originalSize.width * scale, sf.originalSize.height * scale);
-      }
+  private panelArtwork(parent: Node, name: string, x: number, y: number, width: number) {
+    const art = this.make(name, parent, x, y), generation = this.displayGeneration;
+    const apply = (frame: SpriteFrame) => {
+      if (!this.presentationAlive(art, generation)) return;
+      this.cachePresentationFrame(name, frame);
+      const sprite = art.addComponent(Sprite); sprite.spriteFrame = frame; sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+      art.getComponent(UITransform)!.setContentSize(width, width * frame.originalSize.height / frame.originalSize.width);
+    };
+    const cached = this.spellFrames.get(name);
+    if (cached && isValid(cached)) apply(cached);
+    else resources.load(`art/${name}/spriteFrame`, SpriteFrame, (error, frame) => { if (!error && frame && isValid(frame)) apply(frame); });
+    return art;
+  }
+  private paintedHeading(parent: Node, title: string, y: number) {
+    const art = this.make('PaintedHeading', parent, 0, y, 620, 100), generation = this.displayGeneration;
+    const apply = (frame: SpriteFrame) => {
+      if (!this.presentationAlive(art, generation)) return;
+      this.cachePresentationFrame('ui-skill-banner', frame);
+      const sprite = art.addComponent(Sprite); sprite.spriteFrame = frame; sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+      const scale = 620 / 2118;
+      art.getComponent(UITransform)!.setContentSize(frame.originalSize.width * scale, frame.originalSize.height * scale);
+    };
+    const cached = this.spellFrames.get('ui-skill-banner');
+    if (cached && isValid(cached)) apply(cached);
+    else resources.load('art/ui-skill-banner/spriteFrame', SpriteFrame, (error, frame) => { if (!error) apply(frame); });
+    this.displayTypeface(this.shadowText(parent, title, 0, y, 36, GOLD, 430));
+  }
+  private removeViewportLayouts(node: Node) {
+    this.viewportLayouts.delete(node);
+    for (const child of node.children) this.removeViewportLayouts(child);
+  }
+  private artOverlay(name: string) {
+    const clip = this.root.getComponent(Mask); if (clip) clip.enabled = false;
+    if (this.modal) { this.removeViewportLayouts(this.modal); this.detachSpriteFrames(this.modal); this.modal.active = false; this.modal.destroy(); }
+    const layer = this.make(name, this.root, 0, 0, 720, 1280); this.modal = layer;
+    layer.addComponent(BlockInputEvents);
+    const shade = this.make('OverlayShade', layer, 0, 0), graphic = shade.addComponent(Graphics);
+    this.viewportLayout(shade, () => {
+      const size = screen.windowSize, cover = stageCover(size.width, size.height);
+      graphic.clear(); graphic.fillColor = new Color(8, 24, 30, 145);
+      graphic.rect(-cover.width / 2, -cover.height / 2, cover.width, cover.height); graphic.fill();
     });
-    this.label(p, `境界 ${this.save.commanderLevel}    灵石 ${this.save.coins}`, 0, -35, 28, PAPER, 620);
-    this.label(p, '不占阵位 · 每场开局释放一次选定神通', 0, -100, 22, PAPER, 640);
-    this.button(p, `${this.save.commanderSkill === 'swordRain' ? '◆ ' : ''}万剑归宗 · 全阵压制`, 0, -190, 600, () => { this.save = selectCommanderSkill(this.save, 'swordRain'); this.persist(); this.commander(); });
-    this.button(p, `${this.save.commanderSkill === 'fireball' ? '◆ ' : ''}天火焚阵 · 横排轰击`, 0, -290, 600, () => { this.save = selectCommanderSkill(this.save, 'fireball'); this.persist(); this.commander(); });
-    this.label(p, '修炼可增强开场神通威力', 0, -375, 22, '#c8d6cf', 620);
-    this.button(p, `修炼升阶 · ${commanderUpgradeCost(this.save)} 灵石`, 0, -460, 600, () => { try { this.save = upgradeCommander(this.save); this.persist(); this.commander(); } catch (e) { this.toast(String(e)); } });
+    return layer;
+  }
+  private outcome() {
+    const outcome = this.lastOutcome; if (!outcome) return;
+    const { result, reward, advanced } = outcome;
+    for (const child of this.root.children) child.active = child === this.stageLayer;
+    if (this.stageLayer) for (const child of this.stageLayer.children) child.active = child.name === 'StageBackdrop' || child.name === 'StageFigures';
+    const p = this.artOverlay('BattleOutcome');
+    this.shadowText(p, `${getStage(result.stage).encounter.title} · 第 ${result.stage} 关`, 0, 550, 26, PAPER, 620);
+    this.paintedHeading(p, result.winner === 'ally' ? '破阵成功' : result.winner === 'draw' ? '回合上限 · 平局' : '暂且整备，再战', 435);
+    this.shadowText(p, `灵石 +${reward}`, 155, 285, 40, GOLD, 310);
+    const allies = result.units.filter(unit => unit.side === 'ally');
+    this.shadowText(p, `${result.rounds} 回合 · 存活 ${allies.filter(unit => unit.hp > 0).length}/${allies.length}`, 155, 205, 25, PAPER, 340);
+    this.shadowText(p, advanced ? `下一关 · 第 ${this.save.stage} 关` : '本关进度未改变', 155, 135, 24, PAPER, 340);
+    // Actual event excerpts only; no inferred MVP, fabricated score or repeated settlement.
+    const reports = result.events.filter(event => event.type === 'death' || event.type === 'heal');
+    const excerpts = (reports.length ? reports : result.events.filter(event => event.type === 'attack' || event.type === 'commander')).slice(-2);
+    this.panelArtwork(p, 'ui-result-letter', 0, -210, 620);
+    this.shadowText(p, '战况', 0, -80, 28, GOLD, 600);
+    excerpts.forEach((event, index) => this.shadowText(p, event.text, 0, -180 - index * 60, 24, PAPER, 500));
+    if (this.saveState === 'unsaved') this.button(p, '重试保存（不重复发奖）', 0, -335, 560, () => { this.persist(); this.outcome(); });
+    else if (result.winner !== 'ally') {
+      this.button(p, '招募同道', -165, -335, 300, () => this.recruitment());
+      this.button(p, '指挥官养成', 165, -335, 300, () => this.commander());
+    }
+    this.button(p, advanced ? '前往下一关' : '查看阵位', 0, -445, 520, () => advanced ? this.game() : this.formation());
+    this.saveStatusLabel = this.shadowText(p, this.saveDescription(), 0, -555, 22, GOLD, 620);
+  }
+  private commander() {
+    if (this.running) return;
+    for (const child of this.root.children) child.active = child === this.stageLayer;
+    if (this.stageLayer) for (const child of this.stageLayer.children) child.active = child.name === 'StageBackdrop';
+    else if (this.backgroundLayer) this.backgroundLayer.active = true;
+    const p = this.artOverlay('CommanderGallery');
+    this.displayTypeface(this.shadowText(p, '指挥官 · 灵契仙使', -60, 550, 32, GOLD, 470));
+    this.button(p, '关闭', 260, 550, 120, () => { this.modal?.destroy(); this.modal = null; this.game(); });
+    // An explicit portrait window crops the source at the chest, never exposes its waist cut.
+    const window = this.make('CommanderWindow', p, -135, 175, 360, 500); window.addComponent(Mask);
+    const portrait = this.make('CommanderPortrait', window, 0, 0), generation = this.displayGeneration;
+    const apply = (sf: SpriteFrame) => {
+      if (!this.presentationAlive(portrait, generation)) return;
+      this.cachePresentationFrame('commander', sf);
+      const sp = portrait.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = sf;
+      const scale = .6;
+      portrait.getComponent(UITransform)!.setContentSize(sf.originalSize.width * scale, sf.originalSize.height * scale);
+      portrait.setPosition((sf.originalSize.width / 2 - 700) * scale, 260 - sf.originalSize.height * scale / 2);
+    };
+    const cached = this.spellFrames.get('commander');
+    if (cached && isValid(cached)) apply(cached);
+    else resources.load('art/commander/spriteFrame', SpriteFrame, (error, sf) => { if (!error) apply(sf); });
+    const edge = this.make('PortraitWindowEdge', p, -135, 175, 364, 504).addComponent(Graphics);
+    edge.strokeColor = this.color(GOLD); edge.lineWidth = 1; edge.roundRect(-182, -252, 364, 504, 8); edge.stroke();
+    // The thin jade baseline sits at ~61% source height; align it with the crop bottom.
+    this.panelArtwork(p, 'ui-commander-trim', -135, -75 + (.61 - .5) * (440 * 756 / 2079), 440);
+    this.shadowText(p, `境界 ${this.save.commanderLevel}`, 210, 315, 32, GOLD, 230);
+    this.shadowText(p, `灵石 ${this.save.coins}`, 210, 220, 26, PAPER, 230);
+    this.shadowText(p, '不占阵位', 210, 115, 24, PAPER, 230);
+    this.shadowText(p, '每场开局一次神通', 0, -125, 24, PAPER, 600);
+    this.button(p, `${this.save.commanderSkill === 'swordRain' ? '◆ ' : ''}万剑归宗`, -165, -190, 300, () => { this.save = selectCommanderSkill(this.save, 'swordRain'); this.persist(); this.commander(); });
+    this.button(p, `${this.save.commanderSkill === 'fireball' ? '◆ ' : ''}天火焚阵`, 165, -190, 300, () => { this.save = selectCommanderSkill(this.save, 'fireball'); this.persist(); this.commander(); });
+    this.shadowText(p, '全阵压制', -165, -265, 24, PAPER, 300);
+    this.shadowText(p, '横排轰击', 165, -265, 24, PAPER, 300);
+    this.shadowText(p, '修炼可增强开场神通威力', 0, -340, 24, PAPER, 620);
+    this.button(p, `修炼升阶 · ${commanderUpgradeCost(this.save)} 灵石`, 0, -440, 600, () => { try { this.save = upgradeCommander(this.save); this.persist(); this.commander(); } catch (e) { this.toast(String(e)); } });
+    this.saveStatusLabel = this.shadowText(p, this.saveDescription(), 0, -555, 22, GOLD, 620);
   }
   private fight() {
     if (this.running) return;
-    this.running = true; this.resultAwarded = false; const token = ++this.generation;
+    this.running = true; this.resultAwarded = false; this.lastOutcome = null; const token = ++this.generation;
     let result: BattleResult;
     try { result = simulateBattle(this.save); } catch (e) { this.running = false; this.toast(String(e)); return; }
     const stageKey = stageBackdrop(getStage(this.save.stage).regionIndex);
@@ -900,16 +991,14 @@ export class GameApp extends Component {
       if (index >= result.events.length) {
         finishAction();
         this.running = false; this.eventFeedback();
-        if (!this.resultAwarded) { this.resultAwarded = true; this.save = settleBattle(this.save, result); this.persist(); }
-        blocker.destroy(); const p = this.open(result.winner === 'ally' ? '破阵成功' : '胜败乃修行常事'); if (!p) return;
-        this.label(p, result.winner === 'ally' ? (this.saveState === 'saved' ? '奖励已结算并保存，新的关卡已开启' : '奖励已在本次会话生效，但尚未保存') : '调整站位、招募同道或提升指挥官后再战', 0, 150, 28, PAPER, 620);
-        this.label(p, this.saveDescription(), 0, 40, 22, GOLD, 620);
-        if (this.saveState === 'unsaved') this.button(p, '重试保存（不重复发奖）', 0, -200, 560, () => { if (this.persist()) this.game(); });
-        this.button(p, result.winner === 'ally' ? '前往下一关' : '查看阵位', 0, -80, 520, () => result.winner === 'ally' ? this.game() : this.formation());
-        if (result.winner !== 'ally') {
-          this.button(p, '招募同道', -165, -320, 300, () => this.recruitment());
-          this.button(p, '指挥官养成', 165, -320, 300, () => this.commander());
+        if (!this.resultAwarded) {
+          this.resultAwarded = true;
+          const coins = this.save.coins, stage = this.save.stage;
+          this.save = settleBattle(this.save, result);
+          this.lastOutcome = { result, reward: this.save.coins - coins, advanced: this.save.stage !== stage };
+          this.persist();
         }
+        blocker.destroy(); this.outcome();
         return;
       }
       const e = result.events[index++];

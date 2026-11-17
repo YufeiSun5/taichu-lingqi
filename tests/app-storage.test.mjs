@@ -54,7 +54,7 @@ function replayHarness() {
  const { app } = setup(); app.load(); app.isValid = true;
  app.root = { children: [], getComponent: () => null }; app.status = { string: '' };
  app.make = () => ({ on() {}, destroy() {} });
- app.open = () => ({}); app.label = () => ({}); app.button = () => ({});
+ app.outcome = () => {}; app.open = () => ({}); app.label = () => ({}); app.button = () => ({});
  const timers = new Map();
  app.scheduleOnce = (fn, delay) => { if (!timers.has(fn)) timers.set(fn, delay); };
  app.unscheduleAllCallbacks = () => timers.clear();

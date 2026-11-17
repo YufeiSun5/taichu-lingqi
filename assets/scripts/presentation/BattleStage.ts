@@ -3,7 +3,7 @@ export type StageMember = { uid: string; heroId?: string; side: string; row: num
 export type StageFocus = { uid: string; x: number; footY: number; bodyHeight: number };
 export function stageFocus(units: StageMember[], actor?: string, targets: string[] = []): StageFocus[] {
   const byId = new Map(units.map(unit => [unit.uid, unit]));
-  const ids = [...new Set([actor, ...targets].filter((id): id is string => !!id && byId.has(id)))].slice(0, 2);
+  const ids = Array.from(new Set([actor, ...targets].filter((id): id is string => !!id && byId.has(id)))).slice(0, 2);
   const members = ids.map(id => byId.get(id)!);
   const sameSide = members.length === 2 && members[0].side === members[1].side;
   const support = sameSide && !!actor;

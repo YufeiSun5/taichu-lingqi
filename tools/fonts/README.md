@@ -16,7 +16,7 @@ Requires Python and fontTools 4.61.1; no font installation.
     python tools/fonts/download.py --output-dir /path/to/official-cache
     python tools/fonts/build.py --source-dir /path/to/official-cache --output-dir /path/to/output
 
-The downloader uses an immutable official Google Fonts commit; the builder verifies the source SHA256 before opening it. Do not commit the 24MB source font. The builder reads current GameApp.ts and core/**/*.ts, conservatively includes every printable character, all printable ASCII, common punctuation, plus the fixed review phrases. Missing codepoints fail before/after subsetting. It retains license and copyright name records, TrueType glyf/loca, and removes variation via instantiation (not extension renaming). No font/image conversion is hidden.
+The downloader uses an immutable official Google Fonts commit; the builder verifies the source SHA256 before opening it. Do not commit the 24MB source font. The builder reads current GameApp.ts, core/**/*.ts and presentation/**/*.ts (excluding generated Typeface.ts to avoid self-reference), conservatively includes every printable character, all printable ASCII, common punctuation, plus the fixed review phrases. Missing codepoints fail before/after subsetting. It retains license and copyright name records, TrueType glyf/loca, and removes variation via instantiation (not extension renaming). No font/image conversion is hidden.
 
 Review changed source hashes and output character manifest before copying outputs. New or remote text requires regenerating the subset; arbitrary player text must use a full fallback font. Preview samples are not game screenshots. Choose title/name/button use only; keep small numbers/body text in sans. Do not use synthetic bold over the 600 face.
 
