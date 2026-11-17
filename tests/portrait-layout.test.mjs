@@ -413,3 +413,16 @@ test('ready stage reuses cache synchronously for commander, banner and original 
  for(const unit of units)assert.equal(app.miniPortraits.get(unit.uid).getComponent(FakeSprite).spriteFrame,app.spellFrames.get(app.fighterArt(unit.role,unit.heroId).name));
  const ninth=units.filter(u=>u.side==='enemy')[8];app.focusBattle(undefined,units.filter(u=>u.side==='enemy').map(u=>u.uid),true);const before=app.spellImpactPoint(ninth.uid);app.updateHealth(ninth.uid,0,true);assert.deepEqual(app.spellImpactPoint(ninth.uid),before,'death never relocates the real target miniature');
 });
+
+test('normal focus labels clear the guardian spear while sword keeps raised-weapon headroom',()=>{
+ const app=setup(13);app.game();const units=core.simulateBattle(app.save).initialUnits;app.enterBattleStage(units);
+ const guardian=units.find(u=>u.heroId==='guard'||u.role==='guard'),sword=units.find(u=>u.heroId==='sword'&&u.side!==guardian.side);
+ app.focusBattle(guardian.uid,[sword.uid]);
+ for(const [unit,gap]of [[guardian,80],[sword,120]]){
+  const layout=app.stagePlacements.get(unit.uid),label=app.stageLabels.get(unit.uid).node;
+  assert.equal(label.y,layout.footY+layout.bodyHeight+gap);
+ }
+ const guardLayout=app.stagePlacements.get(guardian.uid),guardLabel=app.stageLabels.get(guardian.uid).node;
+ const spearTop=guardLayout.footY+440+(105-5)*440/(1240-105);
+ assert.ok(guardLabel.y-guardLabel.h/2>spearTop,'full label rectangle clears the measured spear tip');
+});

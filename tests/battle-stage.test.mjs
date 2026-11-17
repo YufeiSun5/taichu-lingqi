@@ -18,3 +18,23 @@ test('portrait and landscape surroundings cover the viewport without stretching 
  for(const [w,h]of [[390,844],[720,1280],[1440,900]]){const cover=stageCover(w,h);assert.ok(cover.width>=720&&cover.height>=1280);assert.ok(Math.abs(cover.width/cover.height-w/h)<1e-10);}
  assert.deepEqual([0,1,2,3].map(preparationBackdrop),['battle-bamboo-portrait','battle-temple-portrait','battle-underworld-portrait','battle-bamboo-portrait']);
 });
+
+test('full 440-high sword action alpha contours stay inside the portrait on both sides',()=>{
+ const boxes=[[118,133,516,564],[129,92,454,564],[67,159,572,547],[118,135,513,547]];
+ const feet=[[275,562],[311.5,562],[268,545],[276,546]],scale=440/428;
+ for(const side of ['ally','enemy']){
+  const sword={uid:'sword',heroId:'sword',side,row:0,col:0},other={uid:'other',heroId:'guard',side:side==='ally'?'enemy':'ally',row:0,col:0};
+  for(const [actor,target]of [['sword','other'],['other','sword']]){
+   const layout=stageFocus([sword,other],actor,[target]),focus=layout.find(p=>p.uid==='sword'),mirror=side==='ally'?1:-1;
+   assert.equal(focus.bodyHeight,440);assert.equal(Math.abs(focus.x),150);assert.equal(Math.abs(layout.find(p=>p.uid==='other').x),170);
+   for(const [i,box]of boxes.entries()){
+    const edges=[box[0],box[2]].map(x=>focus.x+(x-feet[i][0])*scale*mirror);
+    assert.ok(Math.min(...edges)>=-360&&Math.max(...edges)<=360,`side ${side}, pose ${i}: ${edges}`);
+   }
+  }
+ }
+});
+test('sword safety inset does not change same-side healing or original fixed atlas cells',()=>{
+ const healer={uid:'healer',heroId:'healer',side:'ally',row:0,col:0},sword={uid:'sword',heroId:'sword',side:'ally',row:1,col:0};
+ const focus=stageFocus([healer,sword],'healer',['sword']);assert.deepEqual(focus.map(p=>[p.x,p.bodyHeight]),[[-100,410],[-220,330]]);
+});

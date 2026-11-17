@@ -405,7 +405,7 @@ export class GameApp extends Component {
     const nameRows = new Map<string, number[]>();
     for (const placement of this.stagePlacements.values()) {
       const unit = this.stageUnits.find(unit => unit.uid === placement.uid)!;
-      let nameY = placement.footY + placement.bodyHeight + (unit.heroId === 'sword' ? 120 : 65);
+      let nameY = placement.footY + placement.bodyHeight + (unit.heroId === 'sword' ? 120 : 80);
       const occupied = nameRows.get(unit.side) || [];
       while (occupied.some(y => Math.abs(y - nameY) < 75)) nameY += 75;
       occupied.push(nameY); nameRows.set(unit.side, occupied);

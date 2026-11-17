@@ -1,5 +1,5 @@
 /** Pure presentation: selection and coordinates only, never battle rules. */
-export type StageMember = { uid: string; side: string; row: number; col: number };
+export type StageMember = { uid: string; heroId?: string; side: string; row: number; col: number };
 export type StageFocus = { uid: string; x: number; footY: number; bodyHeight: number };
 export function stageFocus(units: StageMember[], actor?: string, targets: string[] = []): StageFocus[] {
   const byId = new Map(units.map(unit => [unit.uid, unit]));
@@ -7,7 +7,7 @@ export function stageFocus(units: StageMember[], actor?: string, targets: string
   const members = ids.map(id => byId.get(id)!);
   const sameSide = members.length === 2 && members[0].side === members[1].side;
   return members.map((unit, index) => ({ uid: unit.uid,
-    x: (unit.side === 'ally' ? -1 : 1) * (sameSide ? (index === 1 ? 220 : 100) : 170),
+    x: (unit.side === 'ally' ? -1 : 1) * (sameSide ? (index === 1 ? 220 : 100) : unit.heroId === 'sword' ? 150 : 170),
     footY: sameSide ? (index === 1 ? -130 : -270) : (unit.side === 'ally' ? -250 : -220),
     bodyHeight: sameSide ? (index === 1 ? 330 : 410) : 440 }));
 }
