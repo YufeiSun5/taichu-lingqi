@@ -606,7 +606,7 @@ export class GameApp extends Component {
   // Future hero-specific illustrations supply their own anchors, not a shared crop.
   private fighterArt(role: string, heroId?: string) {
     if (heroId === 'archer') return { name: 'fighter-archer', groundX: 484, groundY: 1389, bodyTop: 25 };
-    if (heroId === 'mage') return { name: 'fighter-mage', groundX: 552, groundY: 1285, bodyTop: 70 };
+    if (heroId === 'mage') return { name: 'fighter-mage', groundX: 560, groundY: 1292, bodyTop: 66 };
     if (heroId === 'blade') return { name: 'fighter-blade', groundX: 459, groundY: 1183, bodyTop: 20 };
     if (heroId === 'lotus') return { name: 'fighter-lotus', groundX: 504, groundY: 1282, bodyTop: 45 };
     if (heroId === 'frost') return { name: 'fighter-frost', groundX: 528, groundY: 1283, bodyTop: 42 };
