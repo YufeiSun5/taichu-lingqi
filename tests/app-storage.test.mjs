@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes, registerHooks } from 'node:module';
+import { stageBackdrop } from '../assets/scripts/presentation/BattleStage.ts';
 import * as core from '../assets/scripts/core/game.ts';
 registerHooks({ resolve(specifier, context, nextResolve) {
  if (specifier.endsWith('/core/game')) return nextResolve(specifier + '.ts', context);
@@ -12,7 +13,7 @@ const { LocalSaveStore } = await import('../assets/scripts/infrastructure/LocalS
 let source = readFileSync(new URL('../assets/scripts/GameApp.ts', import.meta.url), 'utf8');
 source = stripTypeScriptTypes(source.replace(/^@ccclass\([^\n]+\)\n/gm, '').replace(/@property /g, ''), { mode: 'strip' });
 source = source.replace(/^import[^\n]+\n/gm, '').replace('export class GameApp', 'class GameApp');
-const GameApp = new Function('_decorator', 'Component', 'Node', 'LocalSaveStore', 'isValid', 'Mask', ...Object.keys(core), source + '\nreturn GameApp;')({}, class {}, { EventType: { TOUCH_END: 'touch-end' } }, LocalSaveStore, n => !!n && n.isValid !== false, class {}, ...Object.values(core));
+const GameApp = new Function('_decorator', 'Component', 'Node', 'LocalSaveStore', 'isValid', 'Mask', 'stageBackdrop', 'Sprite', ...Object.keys(core), source + '\nreturn GameApp;')({}, class {}, { EventType: { TOUCH_END: 'touch-end' } }, LocalSaveStore, n => !!n && n.isValid !== false, class {}, stageBackdrop, class {}, ...Object.values(core));
 function setup(raw = null) {
  GameApp.session = null;
  const values = new Map(raw === null ? [] : [['save', raw]]);
@@ -51,7 +52,7 @@ test('app session-only writes preserve unknown original and remain visibly tempo
 // its old timer and is lost on removal. This is not a renderer acceptance test.
 function replayHarness() {
  const { app } = setup(); app.load(); app.isValid = true;
- app.root = {}; app.status = { string: '' };
+ app.root = { children: [], getComponent: () => null }; app.status = { string: '' };
  app.make = () => ({ on() {}, destroy() {} });
  app.open = () => ({}); app.label = () => ({}); app.button = () => ({});
  const timers = new Map();

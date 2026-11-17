@@ -22,3 +22,7 @@ export function stageCover(width: number, height: number) {
 export function preparationBackdrop(region: number) {
   return ['battle-bamboo-portrait', 'battle-temple-portrait', 'battle-underworld-portrait'][((region % 3) + 3) % 3];
 }
+/** Same six-wave region as preparation, but a distinct close-up stage asset. */
+export function stageBackdrop(region: number) {
+  return ['battle-bamboo-stage', 'battle-temple-stage', 'battle-underworld-stage'][((region % 3) + 3) % 3];
+}

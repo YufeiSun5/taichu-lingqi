@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { stageFocus, stageCell, stageCover, preparationBackdrop } from '../assets/scripts/presentation/BattleStage.ts';
+import { stageFocus, stageCell, stageCover, preparationBackdrop, stageBackdrop } from '../assets/scripts/presentation/BattleStage.ts';
 const units=Array.from({length:18},(_,i)=>({uid:`u${i}`,side:i<9?'ally':'enemy',row:Math.floor(i%9/3),col:i%3}));
 test('enemy attacks preserve faction sides and all focus bodies occupy 28–40 percent height',()=>{
  for(const [actor,target]of [['u0','u9'],['u9','u0']])for(const item of stageFocus(units,actor,[target])){
@@ -38,3 +38,34 @@ test('sword safety inset does not change same-side healing or original fixed atl
  const healer={uid:'healer',heroId:'healer',side:'ally',row:0,col:0},sword={uid:'sword',heroId:'sword',side:'ally',row:1,col:0};
  const focus=stageFocus([healer,sword],'healer',['sword']);assert.deepEqual(focus.map(p=>[p.x,p.bodyHeight]),[[-100,410],[-220,330]]);
 });
+
+test('measured alpha silhouettes of the complete roster fit close-up and same-side healing layouts',()=>{
+ // Source PNG alpha >16 bounds, not body rectangles; weapons and robes count.
+ const art=[
+  ['archer',484,1389,25,47,1091],['mage',552,1285,70,158,980],
+  ['blade',459,1183,20,92,1261],['lotus',504,1282,45,170,1007],
+  ['frost',528,1283,42,150,988],['monk',578,1264,13,52,1150],
+  ['guardian',625,1240,105,178,1022],['healer',590,1265,50,129,1090],
+  ['sword',470,1254,6,13,1216],
+ ];
+ for(const [heroId,groundX,groundY,bodyTop,left,right]of art)for(const side of ['ally','enemy']){
+  const unit={uid:'subject',heroId,side,row:2,col:2};
+  const healer={uid:'healing',heroId:'healer',side,row:0,col:0};
+  const opponent={uid:'opponent',heroId:'guardian',side:side==='ally'?'enemy':'ally',row:0,col:0};
+  const contexts=[stageFocus([unit,opponent],'subject',['opponent']),stageFocus([unit,healer],'healing',['subject'])];
+  for(const focus of contexts.map(items=>items.find(item=>item.uid==='subject'))){
+   const scale=focus.bodyHeight/(groundY-bodyTop),mirror=side==='ally'?1:-1;
+   const edges=[left,right].map(x=>focus.x+(x-groundX)*scale*mirror);
+   assert.ok(Math.min(...edges)>=-360&&Math.max(...edges)<=360,`${heroId} ${side} alpha silhouette outside portrait: ${edges}`);
+  }
+ }
+});
+
+ test('six-wave region stage mapping cycles independently of preparation artwork',()=>{
+  for(const [stage,expected]of [[1,'bamboo'],[6,'bamboo'],[7,'temple'],[12,'temple'],[13,'underworld'],[18,'underworld'],[19,'bamboo']]){
+   const region=Math.floor((stage-1)/6);
+   assert.equal(stageBackdrop(region),`battle-${expected}-stage`);
+   assert.equal(preparationBackdrop(region),`battle-${expected}-portrait`);
+   assert.notEqual(stageBackdrop(region),preparationBackdrop(region));
+  }
+ });

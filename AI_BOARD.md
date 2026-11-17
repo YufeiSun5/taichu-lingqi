@@ -82,3 +82,16 @@ portrait-art独占第二场景battle-temple-portrait.png/meta；vfx-art交回动
 
 ### STAGE-01 战前整备与战中近景分离（最高优先级）
 用户再次强烈否定现视觉。已实际查看官方两张战斗图并记录根因，详见art-direction实机拆解。portrait-ui唯一拥有GameApp、presentation/BattleStage.ts及meta、展示tests和最小mock，保留规则/存档契约；vfx-art独占battle-bamboo-stage.png/meta（近景舞台，区别大空地准备背景）；review只读显示契约；role-art只读角色风格对比，18关遭遇方案暂不实施。Mac前台被非QA操作切走，QA已停止点击避免抢占，云端仍持续。新舞台须真实引擎验证，先不再扩旧表单画面。
+
+### STAGE-02 云端独立打磨（基线 15b1d14）
+
+Mac 前台控制窗口尚未确认，portrait-qa 保留隔离工程与入口，不重启或点击 GUI；15b1d14 的 Creator 类型检查通过不代表新近景画面已运行验收。云端继续，不以此阻塞所有开发。
+
+| 写入者 | 唯一范围 | 依赖 / 验收边界 |
+| --- | --- | --- |
+| portrait-ui | GameApp.ts 的登录最小段、按区域展示资源加载/门禁/释放及专属测试 | 修复已实际看到的登录条带、硬截边；不改规则/存档；加载、门禁、呈现使用同一舞台key，旧回调隔离，不自行提交 |
+| portrait-art | battle-temple-stage.png 与 meta | 与竹林近景相同镜头/落脚带；先原图检查，非整备大空地 |
+| vfx-art | battle-underworld-stage.png 与 meta | 同上，独立冥境近景，未集成前不称多场景完成 |
+| role-art | 仓库外 character-review 的动作实验与审查 | 身份/脚位/武器连续性，不替换已发布图集，不把八姿势当最终动画 |
+| review | 只读资源驻留/生命周期/内存估算 | 区分源图、理论内存和实测，不给未经设备验证的性能结论 |
+| 集成负责人 | 共享文档、BattleStage 纯配置与资源测试、串行发布 | GameApp 本轮仅 portrait-ui 写入；实际游戏画面和演出仍须 Mac 控制窗口后验证 |

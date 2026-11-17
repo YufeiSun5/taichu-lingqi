@@ -1,7 +1,7 @@
-import { _decorator, Component, Node, Canvas, Camera, UITransform, Graphics, Color, Label, Layers, view, ResolutionPolicy, director, sys, resources, SpriteFrame, Sprite, tween, Vec3, Mask, LabelOutline, Button, BlockInputEvents, UIOpacity, Texture2D, Rect, Size, Vec2, isValid } from 'cc';
+import { _decorator, Component, Node, Canvas, Camera, UITransform, Graphics, Color, Label, Layers, view, ResolutionPolicy, director, sys, resources, SpriteFrame, Sprite, tween, Vec3, Mask, Button, BlockInputEvents, UIOpacity, Texture2D, Rect, Size, Vec2, isValid } from 'cc';
 import { createSave, HEROES, getUnlockedSlots, getStage, simulateBattle, settleBattle, setFormation, recruit, upgradeCommander, selectCommanderSkill, commanderUpgradeCost, RECRUIT_COST, getStrategy, setStrategy, STRATEGY_SKILLS, STRATEGY_CONDITIONS, STRATEGY_TARGETS } from './core/game';
 import type { Save, BattleUnit, BattleResult, BattleEvent, StrategyRule } from './core/game';
-import { stageFocus, stageCell, stageCover, preparationBackdrop } from './presentation/BattleStage';
+import { stageFocus, stageCell, stageCover, preparationBackdrop, stageBackdrop } from './presentation/BattleStage';
 import type { StageFocus } from './presentation/BattleStage';
 import { LocalSaveStore } from './infrastructure/LocalSaveStore';
 const { ccclass, property } = _decorator;
@@ -41,13 +41,20 @@ export class GameApp extends Component {
   private stageCommander: Node | null = null;
   private status!: Label;
   private generation = 0;
+  private displayGeneration = 0;
   private resultAwarded = false;
   private swordFrames: SpriteFrame[] = [];
   private swordTexture: Texture2D | null = null;
+  private swordRequest = 0;
+  private swordLoading = false;
   private unitActors = new Map<string, { heroId: string; mirror: number; scale: number; pose?: number }>();
   private preloadSwordActions() {
+    if (this.swordLoading || this.swordFrames.length === 4) return;
+    this.swordLoading = true; const request = ++this.swordRequest;
     resources.load('art/fighter-sword-actions/texture', Texture2D, (err, texture) => {
-      if (err || !texture || !isValid(texture) || !isValid(this, true) || !isValid(this.node, true)) return;
+      if (request !== this.swordRequest || !isValid(this, true) || !isValid(this.node, true)) return;
+      this.swordLoading = false;
+      if (err || !texture || !isValid(texture)) return;
       if (texture.width !== 1254 || texture.height !== 1254) return;
       texture.addRef(); this.swordTexture?.decRef(); this.swordTexture = texture;
       for (const frame of this.swordFrames) frame.decRef();
@@ -83,22 +90,48 @@ export class GameApp extends Component {
   private unitArtFailed = new Set<string>();
   private presentationFailures = new Set<string>();
   private spellFrames = new Map<string, SpriteFrame>();
+  private presentationRequests = new Map<string, number>();
+  private presentationSerial = 0;
+  private backgroundSerial = 0;
+  private wantedPresentation = new Set<string>();
+  private presentationAlive(node: Node, generation: number) {
+    if (generation !== this.displayGeneration || !isValid(this, true)) return false;
+    for (let current: Node | null = node; current; current = current.parent) if (!isValid(current, true)) return false;
+    return true;
+  }
+  private detachSpriteFrames(node: Node) {
+    const sprite = node.getComponent(Sprite); if (sprite && isValid(sprite)) sprite.spriteFrame = null;
+    for (const child of node.children) this.detachSpriteFrames(child);
+  }
   private cachePresentationFrame(name: string, frame: SpriteFrame) {
     if (this.spellFrames.get(name) === frame) return;
     frame.addRef(); this.spellFrames.get(name)?.decRef(); this.spellFrames.set(name, frame);
   }
-  private preloadSpells() {
-    for (const name of ['fx-sword', 'fx-fireball', 'battle-bamboo-stage', 'commander', 'ui-skill-banner']) resources.load(`art/${name}/spriteFrame`, SpriteFrame, (err, frame) => {
-      if (err) this.presentationFailures.add(name);
-      if (!err && frame && isValid(frame) && isValid(this, true) && isValid(this.node, true)) {
-        this.presentationFailures.delete(name);
-        this.cachePresentationFrame(name, frame);
+  private preloadSpells(stageKey = stageBackdrop(getStage(this.save.stage).regionIndex), retry = false) {
+    const names = [stageKey, this.save.commanderSkill === 'swordRain' ? 'fx-sword' : 'fx-fireball', 'commander', 'ui-skill-banner'];
+    this.wantedPresentation = new Set(names);
+    // game() has cleared/detached the previous stage nodes before dropping ownership.
+    for (const [name, frame] of this.spellFrames) {
+      if ((name.endsWith('-stage') || name.startsWith('fx-')) && !this.wantedPresentation.has(name)) {
+        frame.decRef(); this.spellFrames.delete(name);
       }
-    });
+    }
+    for (const name of this.presentationRequests.keys()) if (!this.wantedPresentation.has(name)) this.presentationRequests.delete(name);
+    for (const name of this.presentationFailures) if (!this.wantedPresentation.has(name)) this.presentationFailures.delete(name);
+    for (const name of names) {
+      const cached = this.spellFrames.get(name); if (cached && isValid(cached)) continue;
+      if (retry) this.presentationRequests.delete(name);
+      if (this.presentationRequests.has(name)) continue;
+      const request = ++this.presentationSerial; this.presentationRequests.set(name, request); this.presentationFailures.delete(name);
+      resources.load(`art/${name}/spriteFrame`, SpriteFrame, (err, frame) => {
+        if (this.presentationRequests.get(name) !== request || !this.wantedPresentation.has(name) || !isValid(this, true) || !isValid(this.node, true)) return;
+        this.presentationRequests.delete(name);
+        if (err || !frame || !isValid(frame)) { this.presentationFailures.add(name); return; }
+        this.presentationFailures.delete(name); this.cachePresentationFrame(name, frame);
+      });
+    }
   }
   onLoad() {
-    this.preloadSpells();
-    this.preloadSwordActions();
     view.setDesignResolutionSize(720, 1280, ResolutionPolicy.SHOW_ALL);
     this.root = this.make('Canvas', this.node, 0, 0, 720, 1280);
     const canvas = this.root.addComponent(Canvas);
@@ -114,7 +147,9 @@ export class GameApp extends Component {
     else { this.store = new LocalSaveStore(sys.localStorage, STORE); this.load(); }
   }
   onDestroy() {
-    this.generation++; this.unscheduleAllCallbacks();
+    this.generation++; this.displayGeneration++; this.presentationSerial++; this.presentationRequests.clear(); this.wantedPresentation.clear();
+    this.swordRequest++; this.swordLoading = false; this.unscheduleAllCallbacks();
+    if (this.root && isValid(this.root)) { this.root.active = false; this.detachSpriteFrames(this.root); }
     for (const frame of this.spellFrames.values()) frame.decRef();
     this.spellFrames.clear();
     for (const frame of this.swordFrames) frame.decRef();
@@ -208,7 +243,8 @@ export class GameApp extends Component {
   }
   private shadowText(parent: Node, value: string, x: number, y: number, size = 24, color = PAPER, w = 640) {
     const label = this.label(parent, value, x, y, size, color, w);
-    const outline = label.node.addComponent(LabelOutline); outline.color = this.color('#0a1a22'); outline.width = 2;
+    // Creator 3.8.2+ exposes outline directly on Label; no deprecated component.
+    label.enableOutline = true; label.outlineColor = this.color('#0a1a22'); label.outlineWidth = 2;
     return label;
   }
   private button(parent: Node, value: string, x: number, y: number, w: number, action: () => void, active = true) {
@@ -219,50 +255,78 @@ export class GameApp extends Component {
     const button = n.addComponent(Button); button.transition = Button.Transition.NONE; button.interactable = active;
     n.on(Button.EventType.CLICK, () => { if (active && !this.running && isValid(n, true)) action(); }); return n;
   }
-  private clear() { this.unitArtReady.clear(); this.unitArtFailed.clear(); const clip = this.root.getComponent(Mask); if (clip) clip.enabled = true; this.stageMode = false; this.stageLayer = null; this.stageUnits = []; this.stagePlacements.clear(); this.stageLabels.clear(); this.miniPortraits.clear(); this.miniMarkers.clear(); this.stageNames = null; this.stageCommander = null; this.generation++; this.unitActors.clear(); for (const child of [...this.root.children]) child.destroy(); this.root.removeAllChildren(); this.modal = null; this.saveStatusLabel = null; this.unitNodes.clear(); this.hpLabels.clear(); this.hpBars.clear(); this.unitPortraits.clear(); this.unitMarkers.clear(); this.feedbackLabels.clear(); this.unitHealth.clear(); this.unitEnergy.clear(); }
+  private clear() { this.displayGeneration++; this.backgroundSerial++; this.unitArtReady.clear(); this.unitArtFailed.clear(); const clip = this.root.getComponent(Mask); if (clip) clip.enabled = true; this.stageMode = false; this.stageLayer = null; this.stageUnits = []; this.stagePlacements.clear(); this.stageLabels.clear(); this.miniPortraits.clear(); this.miniMarkers.clear(); this.stageNames = null; this.stageCommander = null; this.generation++; this.unitActors.clear(); for (const child of [...this.root.children]) {
+      this.detachSpriteFrames(child); child.destroy();
+    } this.root.removeAllChildren(); this.modal = null; this.saveStatusLabel = null; this.unitNodes.clear(); this.hpLabels.clear(); this.hpBars.clear(); this.unitPortraits.clear(); this.unitMarkers.clear(); this.feedbackLabels.clear(); this.unitHealth.clear(); this.unitEnergy.clear(); }
   private background(region = 0) {
+    const generation = this.displayGeneration, request = ++this.backgroundSerial, name = preparationBackdrop(region);
+    const backgrounds = ['battle-bamboo-portrait', 'battle-temple-portrait', 'battle-underworld-portrait', 'battle-bamboo', 'battle-temple'];
+    for (const old of this.root.children.filter(child => child.name === 'BackgroundArt')) { this.detachSpriteFrames(old); old.destroy(); }
+    for (const key of backgrounds) if (key !== name) { this.spellFrames.get(key)?.decRef(); this.spellFrames.delete(key); }
     this.box(this.root, 0, 0, 720, 1280, '#142c32', '#142c32');
     const art = this.make('BackgroundArt', this.root, 0, 0, 720, 1280);
-    const apply = (sf: SpriteFrame, portrait: boolean) => {
-      if (!isValid(art, true)) return;
+    const alive = () => request === this.backgroundSerial && this.presentationAlive(art, generation);
+    const apply = (sf: SpriteFrame, portrait: boolean, key: string) => {
+      if (!alive()) return;
+      this.cachePresentationFrame(key, sf);
       const sp = art.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = sf;
-      // Portrait art has its walkable ground in the central/lower field. The legacy
-      // landscape fallback crops to its lower quarter instead of floating actors in sky.
       const scale = portrait ? Math.max(720 / sf.originalSize.width, 1280 / sf.originalSize.height)
         : Math.max(720 / sf.originalSize.width, 1000 / (sf.originalSize.height * .25));
       art.getComponent(UITransform)!.setContentSize(sf.originalSize.width * scale, sf.originalSize.height * scale);
       art.setPosition(0, portrait ? 0 : -640 + sf.originalSize.height * scale / 2);
     };
-    const legacy = () => resources.load(`art/${region % 2 ? 'battle-temple' : 'battle-bamboo'}/spriteFrame`, SpriteFrame, (err, sf) => { if (!err) apply(sf, false); });
-    resources.load(`art/${preparationBackdrop(region)}/spriteFrame`, SpriteFrame, (err, sf) => { if (err) legacy(); else apply(sf, true); });
+    const legacyKey = region % 2 ? 'battle-temple' : 'battle-bamboo';
+    const legacy = () => resources.load(`art/${legacyKey}/spriteFrame`, SpriteFrame, (err, sf) => { if (!err) apply(sf, false, legacyKey); });
+    resources.load(`art/${name}/spriteFrame`, SpriteFrame, (err, sf) => { if (!alive()) return; if (err) legacy(); else apply(sf, true, name); });
   }
   private edgeVeil(parent: Node, top: boolean, depth = 200) {
     const n = this.make(top ? 'TopVignette' : 'BottomVignette', parent, 0, 0); const g = n.addComponent(Graphics);
-    for (let i = 0; i < 16; i++) {
-      const strip = depth / 16; g.fillColor = new Color(8, 24, 30, Math.round(225 * (1 - i / 16)));
-      g.rect(-360, top ? 640 - (i + 1) * strip : -640 + i * strip, 720, strip + 1); g.fill();
+    // One design-pixel sample, without overlapping alpha rectangles. The former
+    // sixteen 20–27px bands and +1px overlaps produced visible steps and seams.
+    const samples = Math.max(1, Math.ceil(depth)), strip = depth / samples;
+    for (let i = 0; i < samples; i++) {
+      const opacity = Math.round(225 * Math.pow(1 - (i + .5) / samples, 2));
+      g.fillColor = new Color(8, 24, 30, opacity);
+      g.rect(-360, top ? 640 - (i + 1) * strip : -640 + i * strip, 720, strip); g.fill();
     }
   }
   private login() {
-    this.clear(); this.background(); this.edgeVeil(this.root, true, 300);
-    const portrait = this.make('LoginCommander', this.root, 35, 20, 700, 700);
+    this.clear(); this.background(); this.edgeVeil(this.root, true, 240);
+    const generation = this.displayGeneration;
+    // This source is a waist-up portrait, not a full-body figure. Its opaque cut
+    // edge belongs BELOW the viewport, rather than floating across the scenery.
+    const portrait = this.make('LoginCommander', this.root, -20, -190, 700, 1060);
     resources.load('art/commander/spriteFrame', SpriteFrame, (err, sf) => {
-      if (!err && isValid(portrait, true)) {
-        const scale = Math.min(760 / sf.originalSize.width, 760 / sf.originalSize.height);
+      if (!err && this.presentationAlive(portrait, generation)) {
+        this.cachePresentationFrame('commander', sf);
+        const scale = 1060 / sf.originalSize.height;
         const sp = portrait.getComponent(Sprite) || portrait.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = sf;
         portrait.getComponent(UITransform)!.setContentSize(sf.originalSize.width * scale, sf.originalSize.height * scale);
       }
     });
-    this.edgeVeil(this.root, false, 430);
+    this.edgeVeil(this.root, false, 380);
     this.shadowText(this.root, '太 初 灵 契', 0, 490, 64, GOLD, 660);
     this.shadowText(this.root, '结契同道 · 以阵问天', 0, 390, 28, PAPER, 620);
     this.shadowText(this.root, '灵契仙使 · 邀君共赴山海', 0, -310, 24, PAPER, 620);
-    this.button(this.root, '踏入仙途', 0, -425, 490, () => director.loadScene('Game'));
+    const entry = this.button(this.root, '踏入仙途', 0, -425, 490, () => director.loadScene('Game'));
+    const entryArt = this.make('LoginEntryArt', entry, 0, 0, 490, 80); entryArt.setSiblingIndex(0);
+    resources.load('art/ui-skill-banner/spriteFrame', SpriteFrame, (err, frame) => {
+      if (err || !this.presentationAlive(entryArt, generation)) return;
+      this.cachePresentationFrame('ui-skill-banner', frame);
+      const sprite = entryArt.addComponent(Sprite); sprite.spriteFrame = frame; sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+      // Fit its painted alpha bounds, not the large transparent outer canvas.
+      const scale = 490 / 2118;
+      entryArt.getComponent(UITransform)!.setContentSize(frame.originalSize.width * scale, frame.originalSize.height * scale);
+      const fallback = entry.getComponent(Graphics); if (fallback) fallback.enabled = false;
+    });
     this.shadowText(this.root, '本地游客｜未接入平台登录及支付', 0, -510, 20, '#d2d9ce', 620);
     this.saveStatusLabel = this.shadowText(this.root, this.saveDescription(), 0, -580, 18, GOLD);
   }
-  private game() {
-    this.clear(); const stage = getStage(this.save.stage); this.background(stage.regionIndex);
+
+  private game(retryPresentation = false) {
+    this.clear(); const stage = getStage(this.save.stage);
+    this.preloadSpells(stageBackdrop(stage.regionIndex), retryPresentation);
+    this.background(stage.regionIndex);
     this.edgeVeil(this.root, true, 160);
     const top = this.ribbon(this.root, 0, 555, 672, 70);
     this.shadowText(top, '太初灵契', -205, 0, 26, GOLD, 230);
@@ -272,6 +336,7 @@ export class GameApp extends Component {
     this.shadowText(chapter, `${stage.regionName} · ${stage.wave} / 6`, 0, 0, 24, PAPER, 430);
     let battle;
     try { battle = simulateBattle(this.save); } catch { battle = { initialUnits: [] as BattleUnit[] }; }
+    if (battle.initialUnits.some(unit => unit.heroId === 'sword')) this.preloadSwordActions();
     // Back rows first, front rows last: lower ground figures overlap upper ones naturally.
     for (const u of [...battle.initialUnits].sort((a, b) => a.row - b.row || b.col - a.col)) this.drawUnit({ ...u, hp: u.maxHp });
     this.edgeVeil(this.root, false, 280);
@@ -289,8 +354,8 @@ export class GameApp extends Component {
     this.button(this.root, '返回', 240, -520, 160, () => director.loadScene('Login'));
     this.saveStatusLabel = this.shadowText(this.root, this.saveDescription(), 0, -585, 20, GOLD, 640);
   }
-  private enterBattleStage(units: BattleUnit[]) {
-    this.stageMode = true; this.stageUnits = units;
+  private enterBattleStage(units: BattleUnit[], stageKey = stageBackdrop(getStage(this.save.stage).regionIndex)) {
+    this.stageMode = true; this.stageUnits = units; const generation = this.displayGeneration;
     const clip = this.root.getComponent(Mask); if (clip) clip.enabled = false;
     const screen = view.getFrameSize(), cover = stageCover(screen.width, screen.height);
     const previousBackdrop = this.root.children.find(child => child.name === 'BackgroundArt');
@@ -299,18 +364,20 @@ export class GameApp extends Component {
     const backdrop = this.make('StageBackdrop', layer, 0, 0, 720, 1280);
     const loading = this.shadowText(layer, '舞台加载中…', 0, 300, 24, PAPER, 400);
     const applyBackground = (sf: SpriteFrame, final: boolean) => {
-      if (!isValid(backdrop, true)) return;
+      if (!this.presentationAlive(backdrop, generation)) return;
+      this.cachePresentationFrame(stageKey, sf);
       loading.node.destroy(); if (previousBackdrop && isValid(previousBackdrop, true)) previousBackdrop.active = false;
       const sprite = backdrop.addComponent(Sprite); sprite.spriteFrame = sf; sprite.sizeMode = Sprite.SizeMode.CUSTOM;
       const scale = Math.max(cover.width / sf.originalSize.width, (final ? cover.height : Math.max(1664, cover.height)) / sf.originalSize.height);
       backdrop.getComponent(UITransform)!.setContentSize(sf.originalSize.width * scale, sf.originalSize.height * scale);
       backdrop.setPosition(0, final ? 0 : 180);
     };
-    const cachedStage = this.spellFrames.get('battle-bamboo-stage');
+    const cachedStage = this.spellFrames.get(stageKey);
     if (cachedStage && isValid(cachedStage)) applyBackground(cachedStage, true);
-    else resources.load('art/battle-bamboo-stage/spriteFrame', SpriteFrame, (error, frame) => {
+    else resources.load(`art/${stageKey}/spriteFrame`, SpriteFrame, (error, frame) => {
+      if (!this.presentationAlive(backdrop, generation)) return;
       if (!error) applyBackground(frame, true);
-      else resources.load('art/battle-bamboo/spriteFrame', SpriteFrame, (err, fallback) => { if (!err) applyBackground(fallback, false); });
+      else loading.string = '当前区域舞台未就绪，请返回准备页重试';
     });
     // No full-screen dark slabs or stepped vignette bands in the performance view.
     const figures = this.make('StageFigures', layer, 0, 0);
@@ -461,10 +528,10 @@ export class GameApp extends Component {
     this.unitMarkers.set(u.uid, marker);
     // Art, HUD and ground are separate; feedback never moves or scales the HUD.
     const portrait = this.make('FighterArt', n, 0, 14, 90, 112); this.unitPortraits.set(u.uid, portrait);
-    const art = this.fighterArt(u.role, u.heroId);
+    const art = this.fighterArt(u.role, u.heroId), generation = this.displayGeneration;
     const loading = this.label(n, '载入角色…', 0, 15, 18, GOLD, 96);
     resources.load(`art/${art.name}/spriteFrame`, SpriteFrame, (err, sf) => {
-      if (!isValid(portrait, true)) return;
+      if (!this.presentationAlive(portrait, generation)) return;
       if (err) { this.unitArtFailed.add(u.uid); loading.string = '角色图未载入'; return; }
       this.cachePresentationFrame(art.name, sf);
       this.unitArtReady.add(u.uid); this.unitArtFailed.delete(u.uid);
@@ -537,9 +604,10 @@ export class GameApp extends Component {
   private unitDetail(u: BattleUnit) {
     const p = this.open(`${u.name} · ${u.side === 'ally' ? '我方' : '敌方'}`); if (!p) return;
     const art = this.make('UnitDetailArt', p, 0, 205, 420, 440);
-    const artName = this.fighterArt(u.role, u.heroId).name;
+    const artName = this.fighterArt(u.role, u.heroId).name, generation = this.displayGeneration;
     resources.load(`art/${artName}/spriteFrame`, SpriteFrame, (err, sf) => {
-      if (!err && isValid(art, true)) {
+      if (!err && this.presentationAlive(art, generation)) {
+        this.cachePresentationFrame(artName, sf);
         const sp = art.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = sf;
         const scale = Math.min(420 / sf.originalSize.width, 440 / sf.originalSize.height);
         art.getComponent(UITransform)!.setContentSize(sf.originalSize.width * scale, sf.originalSize.height * scale);
@@ -652,9 +720,10 @@ export class GameApp extends Component {
   }
   private commander() {
     const p = this.open('指挥官 · 灵契仙使'); if (!p) return;
-    const portrait = this.make('CommanderPortrait', p, 0, 230, 470, 430);
+    const portrait = this.make('CommanderPortrait', p, 0, 230, 470, 430), generation = this.displayGeneration;
     resources.load('art/commander/spriteFrame', SpriteFrame, (err, sf) => {
-      if (!err && isValid(portrait, true)) {
+      if (!err && this.presentationAlive(portrait, generation)) {
+        this.cachePresentationFrame('commander', sf);
         const sp = portrait.getComponent(Sprite) || portrait.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = sf;
         const scale = Math.min(470 / sf.originalSize.width, 430 / sf.originalSize.height);
         portrait.getComponent(UITransform)!.setContentSize(sf.originalSize.width * scale, sf.originalSize.height * scale);
@@ -672,11 +741,12 @@ export class GameApp extends Component {
     this.running = true; this.resultAwarded = false; const token = ++this.generation;
     let result: BattleResult;
     try { result = simulateBattle(this.save); } catch (e) { this.running = false; this.toast(String(e)); return; }
-    if (this.unitNodes.size) this.awaitBattleAssets(result.initialUnits, token, () => this.replayBattle(result, token));
-    else this.replayBattle(result, token);
+    const stageKey = stageBackdrop(getStage(this.save.stage).regionIndex);
+    if (this.unitNodes.size) this.awaitBattleAssets(result.initialUnits, token, () => this.replayBattle(result, token, stageKey), stageKey);
+    else this.replayBattle(result, token, stageKey);
   }
-  private awaitBattleAssets(units: BattleUnit[], token: number, ready: () => void) {
-    const required = ['battle-bamboo-stage', 'commander', 'ui-skill-banner', this.save.commanderSkill === 'swordRain' ? 'fx-sword' : 'fx-fireball'];
+  private awaitBattleAssets(units: BattleUnit[], token: number, ready: () => void, stageKey = stageBackdrop(getStage(this.save.stage).regionIndex)) {
+    const required = [stageKey, 'commander', 'ui-skill-banner', this.save.commanderSkill === 'swordRain' ? 'fx-sword' : 'fx-fireball'];
     let elapsed = 0, completed = false;
     const check = () => {
       if (completed || token !== this.generation || !isValid(this, true) || !isValid(this.root, true)) return;
@@ -689,7 +759,7 @@ export class GameApp extends Component {
         const panel = this.open('战斗素材加载未完成'); if (!panel) return;
         this.label(panel, '本场尚未开始，没有结算或扣除资源。请检查连接后重试。', 0, 90, 26, PAPER, 600);
         this.button(panel, '重试加载并开始', 0, -70, 520, () => {
-          this.presentationFailures.clear(); this.preloadSpells(); this.game(); this.fight();
+          this.game(true); this.fight();
         });
         this.button(panel, '返回战前准备', 0, -180, 520, () => this.game());
         return;
@@ -699,9 +769,9 @@ export class GameApp extends Component {
     };
     check();
   }
-  private replayBattle(result: BattleResult, token: number) {
+  private replayBattle(result: BattleResult, token: number, stageKey = stageBackdrop(getStage(this.save.stage).regionIndex)) {
     if (token !== this.generation || !isValid(this, true)) return;
-    if (this.unitNodes.size) this.enterBattleStage(result.initialUnits);
+    if (this.unitNodes.size) this.enterBattleStage(result.initialUnits, stageKey);
     let index = 0;
     let commanderFocused = false;
     let pendingAction: { actor: string; energyAfter: number; actionSkill?: string } | null = null;
