@@ -16,11 +16,11 @@
 | --- | --- | --- | --- |
 | 领域规则：`assets/scripts/core/game.ts` | `createSave/validateSave`；`setFormation/recruit/setStrategy/upgradeCommander/selectCommanderSkill: Save → Save`；`simulateBattle: Save → BattleResult`；`settleBattle: Save × BattleResult → Save` | 不导入 Cocos、DOM、文件/网络/平台 SDK；只此处决定校验、伤害、奖励、解锁、目标选择。输入不应被修改 | `tests/core.test.mjs`；依赖方向当前人工审查，不冒称有 lint 门禁 |
 | 展示/演出：`assets/scripts/GameApp.ts`，`assets/scenes/{Login,Game}.scene` | 用户输入、节点、回放、提示；消费 `initialUnits/events` 显示血量 | 不另算业务数值，不把动画结束当作保存成功。UI状态由组件持有，不能反向成为战斗规则来源 | `tests/project.test.mjs` 仅结构；真实旅程见验证契约 |
-| 应用编排：当前仍在 GameApp 的操作回调、fight/load/persist | 操作序列、运行锁、结算一次、调用核心及存储 | 禁止复制核心校验；持久化失败与业务失败应区分。目前尚无独立保存结果契约 | SAVE-01/02、ARCH-01；真实故障恢复未验证 |
-| 存储适配：当前 GameApp.load/persist，`sys.localStorage` | 完整 Save JSON 读写；格式校验委托核心 | 不制定经济规则，不存凭据。不得把损坏当无存档；现存偏差见看板 | 合法旧档单测存在，实际存储故障和重开待测 |
+| 应用编排：当前仍在 GameApp 的操作回调、fight/load/persist | 操作序列、运行锁、结算一次、调用核心及存储 | 禁止复制核心校验；持久化失败与业务失败应区分。保存结果采用 LocalSaveStore 返回的 saved/failed/blocked，内存状态与持久状态分开显示 | SAVE-01/02、ARCH-01；真实故障恢复未验证 |
+| 存储适配：`assets/scripts/infrastructure/LocalSaveStore.ts`，GameApp 注入 `sys.localStorage` | 完整 Save JSON 读写；格式校验委托核心 | 不制定经济规则，不存凭据。区分无档/合法/损坏/不可读；坏档需显式备份后重建，临时会话禁止写入；基线变化阻止覆盖 | 14项存储故障单测及4项用例编排测试；真实UI重开待测 |
 | 资源与配置：`assets/resources/art/`、核心常量 | 图片只展示；角色/关卡数值由核心常量提供 | UI不得成为第二份配置权威；原创来源见 art/README | 源文件检查与待执行 Creator 导入 |
 
-**源码依赖现状**：GameApp→`cc` 与 core；core无外部导入。未来有必要时建议抽 `assets/scripts/application/GameSession.ts` 和 `assets/scripts/infrastructure/LocalSaveStore.ts`（均为计划路径、未实现），通过最小存储契约连接；不用为每个函数造接口。装配入口负责具体适配器。此提议不授权本轮重构。
+**源码依赖现状**：GameApp→`cc`、core 与 LocalSaveStore；LocalSaveStore→core；core无外部导入。未来有必要时建议抽 `assets/scripts/application/GameSession.ts` （计划路径、未实现）；LocalSaveStore 本轮已按最小存储契约抽出，不用为每个函数造接口。装配入口负责具体适配器。此提议不授权本轮重构。
 
 **运行数据流**是用户输入→核心操作→新 Save→持久化→显示；战斗是输入快照→模拟结果→回放→结算→保存。调用先后不等同于源码依赖方向。
 
@@ -31,10 +31,10 @@
 - `simulateBattle`复制/校验输入，返回初始、事件与最终快照；只在内存保留，未建立历史战报。未来持久战报应冻结规则/配置版本，不能用后来的数值重解释历史。
 - 招募/升阶/结算返回完整新 Save，保存应一次写完整对象，不能把币和关卡分开保存。当前没有数据库或跨系统事务；内存更新与写盘并非同一事务。
 - `settleBattle`只接受当前关胜利且未结算的结果，重复/失败不推进；这不构成对恶意伪造结果的防作弊保证。
-- 战斗回放以 running/generation 限制重复操作和失效回调；真实触控/切场景效果待验。当前未支持多标签/多进程存档竞争，不假设单次 JSON 写入解决所有并发。
-- 存档版本为1，缺失 strategies 按当前默认解释是已有兼容行为；后续字段/规则变化需显式版本/迁移测试，不能静默删兼容。原存档遇到错误的保护缺口见 SAVE-01。
+- 战斗回放以 running/generation 限制重复操作和失效回调；真实触控/切场景效果待验。存档写入前检查读取基线并拒绝已观察到的冲突；这属于乐观检测，不是原子 CAS，检查与写入之间仍可能存在跨窗口竞争，不承诺多标签/多进程安全。
+- 存档版本为1，缺失 strategies 按当前默认解释是已有兼容行为；后续字段/规则变化需显式版本/迁移测试，不能静默删兼容。原存档错误保护已由 LocalSaveStore 实现并通过独立故障测试，真实界面验收仍待执行。
 - 战斗被中断没有持久回放队列，重进通常回到上次保存状态（源码推断，待重开实测）。产品若要求断点续战，先确认并设计持久状态，不虚构恢复能力。
-- 持久化失败不得称保存完成；只有格式正确且重开可恢复才满足该旅程验收。SAVE-02记录当前差距。
+- 持久化失败不得称保存完成；只有格式正确且重开可恢复才满足该旅程验收。保存成功要求写后回读一致；失败和临时模式明确提示。真实故障界面仍待验。
 - 当前无真实身份、权限或网络协议；本地数据可被用户修改。将来涉及排行榜/付费时必须重新确定服务端校验边界。
 
 ## 核心流程
@@ -43,7 +43,7 @@
 1. 本地游客由 Login 的「踏入仙途」进入 Game；准备已有或新 Save。
 2. 招募/布阵/策略界面发起操作；核心验证归属、费用、锁格、重复与规则合法性。
 3. 核心返回新 Save，组件替换会话状态，调用 persist，更新展示。外部调用仅 localStorage。
-4. 失败应保留原业务状态并展示原因；存储失败当前只有 toast，不能视为持久成功。
+4. 失败应保留原业务状态并展示原因；存储失败有常驻未保存提示与重试/确认重读入口，不能视为持久成功。
 5. 确认实际位置/规则与费用，再关闭重开检查副作用；单测覆盖核心，真实用户路径见功能地图。
 
 ### B. 自动战斗、演出及结算（异步回放）

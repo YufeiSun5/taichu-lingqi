@@ -1,6 +1,7 @@
 import { _decorator, Component, Node, Canvas, Camera, UITransform, Graphics, Color, Label, Layers, view, ResolutionPolicy, director, sys, resources, SpriteFrame, Sprite, tween, Vec3 } from 'cc';
-import { createSave, HEROES, getUnlockedSlots, getStage, simulateBattle, settleBattle, setFormation, recruit, upgradeCommander, selectCommanderSkill, validateSave, commanderUpgradeCost, RECRUIT_COST, getStrategy, setStrategy, STRATEGY_SKILLS, STRATEGY_CONDITIONS, STRATEGY_TARGETS } from './core/game';
-import type { Save, BattleUnit, StrategyRule } from './core/game';
+import { createSave, HEROES, getUnlockedSlots, getStage, simulateBattle, settleBattle, setFormation, recruit, upgradeCommander, selectCommanderSkill, commanderUpgradeCost, RECRUIT_COST, getStrategy, setStrategy, STRATEGY_SKILLS, STRATEGY_CONDITIONS, STRATEGY_TARGETS } from './core/game';
+import type { Save, BattleUnit, BattleResult, StrategyRule } from './core/game';
+import { LocalSaveStore } from './infrastructure/LocalSaveStore';
 const { ccclass, property } = _decorator;
 const INK = '#102a31', GOLD = '#d6b979', PAPER = '#f4e7c8';
 const STORE = 'taichu-lingqi-v1';
@@ -8,7 +9,11 @@ const STORE = 'taichu-lingqi-v1';
 @ccclass('GameApp')
 export class GameApp extends Component {
   @property startInGame = false;
+  private static session: { store: LocalSaveStore; save: Save; state: 'saved'|'unsaved'|'session' } | null = null;
   private root!: Node;
+  private store!: LocalSaveStore;
+  private saveState: 'saved'|'unsaved'|'session' = 'saved';
+  private saveStatusLabel: Label | null = null;
   private modal: Node | null = null;
   private save!: Save;
   private running = false;
@@ -28,18 +33,62 @@ export class GameApp extends Component {
     camera.orthoHeight = 360; camera.near = 0.1; camera.far = 2000; camera.clearFlags = Camera.ClearFlag.SOLID_COLOR;
     camera.clearColor = this.color(INK); camera.visibility = Layers.Enum.UI_2D;
     cameraNode.setPosition(0, 0, 1000); canvas.cameraComponent = camera;
-    this.save = this.load();
-    this.startInGame ? this.game() : this.login();
+    const shared = GameApp.session;
+    if (shared) { this.store = shared.store; this.save = shared.save; this.saveState = shared.state; this.renderEntry(); }
+    else { this.store = new LocalSaveStore(sys.localStorage, STORE); this.load(); }
   }
   onDestroy() { this.generation++; this.unscheduleAllCallbacks(); }
-  private load(): Save {
-    try {
-      const s = JSON.parse(sys.localStorage.getItem(STORE) || 'null');
-      if (s) return validateSave(s);
-    } catch { /* local storage unavailable or malformed */ }
-    return createSave();
+  private renderEntry() { this.startInGame ? this.game() : this.login(); }
+  private retainSession() { GameApp.session = { store: this.store, save: this.save, state: this.saveState }; }
+  private load() {
+    const result = this.store.load();
+    if ('save' in result) {
+      this.save = result.save; this.saveState = 'saved'; this.retainSession();
+      if (result.status === 'fresh') this.persist();
+      this.renderEntry();
+    } else this.recovery(result.status, result.message);
   }
-  private persist() { try { sys.localStorage.setItem(STORE, JSON.stringify(this.save)); } catch { this.toast('存档不可用，本次进度仅保留在内存'); } }
+  private recovery(kind: 'corrupt'|'unavailable', message: string) {
+    this.clear(); this.background(); this.box(this.root, 0, 0, 850, 490);
+    this.label(this.root, kind === 'corrupt' ? '存档需要恢复' : '暂时无法读取存档', 0, 170, 32, GOLD, 760);
+    this.label(this.root, message, 0, 100, 18, PAPER, 750);
+    this.label(this.root, '原存档不会被静默覆盖。可重试，或开启不保存的临时试玩。', 0, 35, 19, PAPER, 780);
+    this.button(this.root, '重新读取', -200, -45, 300, () => this.load());
+    this.button(this.root, '临时试玩（不保存）', 200, -45, 300, () => {
+      this.store.useSessionOnly(); this.save = createSave(); this.saveState = 'session'; this.retainSession(); this.renderEntry();
+    });
+    if (kind === 'corrupt') this.button(this.root, '备份原始损坏存档后，开始新进度', 0, -125, 700, () => {
+      const result = this.store.startNewWithBackup();
+      if (result.status === 'saved') { this.save = result.save; this.saveState = 'saved'; this.retainSession(); this.renderEntry(); }
+      else this.toast(result.message);
+    });
+    this.label(this.root, '临时试玩关闭后进度丢失，原始存档保持不变', 0, -205, 15, '#c8bd9f', 760);
+  }
+  private saveDescription() {
+    return this.saveState === 'session' ? '临时试玩 · 进度不会保存' : this.saveState === 'unsaved' ? '有未保存进度 · 请重试保存，关闭可能丢失本次进度' : '进度已保存在本机';
+  }
+  private persist(): boolean {
+    const result = this.store.write(this.save);
+    if (result.status === 'saved') this.saveState = 'saved';
+    else if (this.saveState !== 'session') this.saveState = 'unsaved';
+    this.retainSession();
+    if (this.saveStatusLabel?.isValid) this.saveStatusLabel.string = this.saveDescription();
+    if (result.status !== 'saved' && this.saveState !== 'session') this.toast(result.message);
+    return result.status === 'saved';
+  }
+  private savePanel() {
+    const p = this.open('进度尚未保存'); if (!p) return;
+    this.label(p, '请保留当前窗口。重试保存不会重复发放奖励。', 0, 130, 23, PAPER, 1000);
+    this.label(p, '若其他实例已修改存档，需要确认后重新读取，不能覆盖较新的内容。', 0, 65, 20, GOLD, 1100);
+    this.button(p, '重试保存', -200, -40, 300, () => { if (this.persist()) this.game(); });
+    this.button(p, '重新读取…', 200, -40, 300, () => {
+      const confirm = this.open('确认重新读取'); if (!confirm) return;
+      this.label(confirm, '重新读取会舍弃当前窗口尚未保存的进度。', 0, 100, 25, GOLD, 1000);
+      this.label(confirm, '磁盘中的原存档不会被删除或覆盖。', 0, 35, 21, PAPER, 1000);
+      this.button(confirm, '保留当前进度', -200, -75, 300, () => this.savePanel());
+      this.button(confirm, '确认舍弃并重新读取', 200, -75, 340, () => { GameApp.session = null; this.load(); });
+    });
+  }
   private color(hex: string) { return new Color().fromHEX(hex); }
   private make(name: string, parent: Node, x: number, y: number, w = 0, h = 0) {
     const n = new Node(name); n.layer = Layers.Enum.UI_2D; n.parent = parent;
@@ -61,7 +110,7 @@ export class GameApp extends Component {
     this.label(n, value, 0, 0, 18, active ? PAPER : '#82918f', w - 14);
     n.on(Node.EventType.TOUCH_END, () => { if (active) action(); }); return n;
   }
-  private clear() { for (const child of [...this.root.children]) child.destroy(); this.root.removeAllChildren(); this.modal = null; this.unitNodes.clear(); this.hpLabels.clear(); }
+  private clear() { for (const child of [...this.root.children]) child.destroy(); this.root.removeAllChildren(); this.modal = null; this.saveStatusLabel = null; this.unitNodes.clear(); this.hpLabels.clear(); }
   private background(region = 0) {
     this.box(this.root, 0, 0, 1280, 720, ['#31545b', '#4b5367', '#4b454c'][region % 3], '#31545b');
     // Original procedural landscape fallback, not extracted artwork.
@@ -84,7 +133,8 @@ export class GameApp extends Component {
     this.label(this.root, '结契同道 · 以阵问天', 0, 45, 24);
     this.label(this.root, '仙侠策略自动战斗 · 云端原型', 0, -5, 17, '#a8c2bb');
     this.button(this.root, '踏入仙途', 0, -85, 260, () => director.loadScene('Game'));
-    this.label(this.root, '本地游客存档｜未接入平台登录及支付', 0, -165, 14, '#a8c2bb');
+    this.label(this.root, '本地游客｜未接入平台登录及支付', 0, -165, 14, '#a8c2bb');
+    this.saveStatusLabel = this.label(this.root, this.saveDescription(), 0, -330, 15, GOLD);
   }
   private game() {
     this.clear(); const stage = getStage(this.save.stage); this.background(stage.regionIndex);
@@ -102,13 +152,16 @@ export class GameApp extends Component {
     this.button(this.root, '招募', -390, -285, 110, () => this.recruitment());
     this.button(this.root, '指挥官', -260, -285, 110, () => this.commander());
     this.button(this.root, '策略', -130, -285, 110, () => this.strategies());
-    this.button(this.root, `速度 ×${this.speed}`, 10, -285, 130, () => { this.speed = this.speed === 1 ? 2 : 1; this.game(); });
+    this.button(this.root, this.saveState === 'unsaved' ? '重试保存' : `速度 ×${this.speed}`, 10, -285, 130, () => {
+      if (this.saveState === 'unsaved') this.savePanel(); else { this.speed = this.speed === 1 ? 2 : 1; this.game(); }
+    });
+    this.saveStatusLabel = this.label(this.root, this.saveDescription(), 0, -350, 13, GOLD);
     this.button(this.root, '开始战斗', 250, -285, 280, () => this.fight());
     this.button(this.root, '返回', 520, -285, 110, () => director.loadScene('Login'));
   }
   private drawUnit(u: BattleUnit) {
     const side = u.side === 'ally' ? -1 : 1;
-    const x = side * (235 + u.col * 125); const y = 135 - u.row * 105;
+    const x = side * (235 + u.col * 125); const y = 190 - u.row * 150;
     const n = this.make(u.uid, this.root, x, y, 110, 100); this.unitNodes.set(u.uid, n);
     const g = n.addComponent(Graphics); g.fillColor = new Color(0, 0, 0, 70); g.ellipse(0, -35, 44, 9); g.fill();
     const hero = HEROES.find(h => h.id === u.heroId);
@@ -117,8 +170,18 @@ export class GameApp extends Component {
     g.fillColor = this.color('#e2c1a2'); g.circle(0, 30, 12); g.fill();
     g.fillColor = this.color('#172a32'); g.arc(0, 35, 13, 0, Math.PI, false); g.fill();
     g.strokeColor = this.color(GOLD); g.lineWidth = 3; g.moveTo(side * -13, 5); g.lineTo(side * -43, 39); g.stroke();
-    this.label(n, u.name, 0, -50, 17, PAPER, 120);
-    const hp = this.label(n, `${u.hp}/${u.maxHp}`, 0, -72, 13, '#b5dfbf', 120); this.hpLabels.set(u.uid, hp);
+    const portrait = this.make('FighterArt', n, 0, 18, 90, 96);
+    const artName = u.role === 'guard' ? 'fighter-guardian' : (u.role === 'healer' || u.role === 'mage') ? 'fighter-healer' : 'fighter-sword';
+    resources.load(`art/${artName}/spriteFrame`, SpriteFrame, (err, sf) => {
+      if (!err && portrait.isValid) {
+        g.enabled = false;
+        const sp = portrait.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = sf;
+        portrait.getComponent(UITransform)!.setContentSize(96 * sf.originalSize.width / sf.originalSize.height, 96);
+        if (u.side === 'enemy') portrait.setScale(-1, 1, 1);
+      }
+    });
+    this.label(n, u.name, 0, -42, 15, PAPER, 120);
+    const hp = this.label(n, `${u.hp}/${u.maxHp}`, 0, -63, 12, '#b5dfbf', 120); this.hpLabels.set(u.uid, hp);
   }
   private open(title: string) {
     if (this.running) return null;
@@ -126,6 +189,7 @@ export class GameApp extends Component {
     const mask = this.box(this.root, 0, 0, 1280, 720, '#142b32', '#142b32');
     mask.on(Node.EventType.TOUCH_END, (e: any) => e.propagationStopped = true);
     this.modal = mask; this.label(mask, title, 0, 290, 30, GOLD);
+    this.saveStatusLabel = this.label(mask, this.saveDescription(), 0, -330, 15, GOLD);
     this.button(mask, '关闭', 510, 290, 120, () => { this.selected = null; this.modal?.destroy(); this.modal = null; this.game(); }); return mask;
   }
   private formation() {
@@ -144,7 +208,7 @@ export class GameApp extends Component {
       }, slots.includes(i));
     }
     this.label(p, '后排 ←                           → 前排 / 敌人', 40, -150, 18);
-    this.button(p, '保存并返回战场', 0, -260, 300, () => { this.selected = null; this.game(); });
+    this.button(p, '返回战场', 0, -260, 300, () => { this.selected = null; this.game(); });
   }
   private recruitment() {
     const p = this.open('招募同道'); if (!p) return;
@@ -199,7 +263,7 @@ export class GameApp extends Component {
       this.button(p, '↓', 440, y, 45, () => { const next = [...rules]; [next[index + 1], next[index]] = [next[index], next[index + 1]]; commit(next); }, index < rules.length - 1);
       this.button(p, '删', 495, y, 45, () => commit(rules.filter((_, i) => i !== index)), rules.length > 1);
     });
-    this.label(p, '点击选项切换 · 每次修改自动保存', 100, -210, 17, '#b6c6bd', 850);
+    this.label(p, '点击切换 · 修改后尝试保存，请查看底部保存状态', 100, -210, 17, '#b6c6bd', 850);
     this.label(p, '近战仍受前排阻挡；治疗优先受伤友军；无规则命中则普攻前排', 100, -245, 16, '#b6c6bd', 900);
     this.button(p, '＋ 添加规则', 100, -295, 270, () => commit([...rules, { skill: 'attack', condition: 'always', target: 'front' }]), rules.length < 3);
   }
@@ -220,7 +284,7 @@ export class GameApp extends Component {
   private fight() {
     if (this.running) return;
     this.running = true; this.resultAwarded = false; const token = ++this.generation;
-    let result;
+    let result: BattleResult;
     try { result = simulateBattle(this.save); } catch (e) { this.running = false; this.toast(String(e)); return; }
     let index = 0;
     // Block navigation while replay is running: results must only be settled once.
@@ -232,7 +296,9 @@ export class GameApp extends Component {
         this.running = false;
         if (!this.resultAwarded) { this.resultAwarded = true; this.save = settleBattle(this.save, result); this.persist(); }
         blocker.destroy(); const p = this.open(result.winner === 'ally' ? '破阵成功' : '胜败乃修行常事'); if (!p) return;
-        this.label(p, result.winner === 'ally' ? '奖励已结算，新的关卡已开启' : '调整站位、招募同道或提升指挥官后再战', 0, 70, 24);
+        this.label(p, result.winner === 'ally' ? (this.saveState === 'saved' ? '奖励已结算并保存，新的关卡已开启' : '奖励已在本次会话生效，但尚未保存') : '调整站位、招募同道或提升指挥官后再战', 0, 70, 24);
+        this.label(p, this.saveDescription(), 0, 0, 17, GOLD);
+        if (this.saveState === 'unsaved') this.button(p, '重试保存（不重复发奖）', 0, -145, 360, () => { if (this.persist()) this.game(); });
         this.button(p, result.winner === 'ally' ? '前往下一关' : '重新布阵', 0, -70, 320, () => this.game()); return;
       }
       const e = result.events[index++]; this.status.string = e.text;
