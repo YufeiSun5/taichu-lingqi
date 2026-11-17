@@ -8,7 +8,7 @@ test('enemy attacks preserve faction sides and all focus bodies occupy 28–40 p
  }
 });
 test('healing stays on its own side, self-healing is one figure, group attack never shrinks the full roster',()=>{
- const heal=stageFocus(units,'u1',['u3']);assert.ok(heal.every(item=>item.x<0));assert.notEqual(heal[0].footY,heal[1].footY);assert.equal(Math.abs(heal[0].x-heal[1].x),120);assert.equal(heal[0].bodyHeight,410);assert.equal(heal[1].bodyHeight,330);
+ const heal=stageFocus(units,'u1',['u3']);assert.ok(heal.every(item=>item.x<0));assert.notEqual(heal[0].footY,heal[1].footY);assert.equal(Math.abs(heal[0].x-heal[1].x),120);assert.equal(heal[0].bodyHeight,330);assert.equal(heal[1].bodyHeight,410);
  assert.equal(stageFocus(units,'u1',['u1']).length,1);assert.equal(stageFocus(units,'u1',units.slice(9).map(u=>u.uid)).length,2);
 });
 test('miniature formations retain their uncompressed row and front column orientation',()=>{
@@ -36,7 +36,7 @@ test('full 440-high sword action alpha contours stay inside the portrait on both
 });
 test('sword safety inset does not change same-side healing or original fixed atlas cells',()=>{
  const healer={uid:'healer',heroId:'healer',side:'ally',row:0,col:0},sword={uid:'sword',heroId:'sword',side:'ally',row:1,col:0};
- const focus=stageFocus([healer,sword],'healer',['sword']);assert.deepEqual(focus.map(p=>[p.x,p.bodyHeight]),[[-100,410],[-220,330]]);
+ const focus=stageFocus([healer,sword],'healer',['sword']);assert.deepEqual(focus.map(p=>[p.x,p.bodyHeight]),[[-220,330],[-100,410]]);
 });
 
 test('measured alpha silhouettes of the complete roster fit close-up and same-side healing layouts',()=>{
@@ -69,3 +69,9 @@ test('measured alpha silhouettes of the complete roster fit close-up and same-si
    assert.notEqual(stageBackdrop(region),preparationBackdrop(region));
   }
  });
+
+test('support foreground prioritizes recipient, commander targets retain first-target prominence',()=>{
+ const support=stageFocus(units,'u0',['u1']);assert.ok(support[1].footY<support[0].footY);assert.ok(support[1].bodyHeight>support[0].bodyHeight);
+ const divine=stageFocus(units,undefined,['u9','u10']);assert.ok(divine[0].footY<divine[1].footY);assert.equal(divine[0].bodyHeight,410);
+ const self=stageFocus(units,'u0',['u0']);assert.equal(self.length,1);assert.equal(self[0].bodyHeight,440);
+});

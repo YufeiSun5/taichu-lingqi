@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Canvas, Camera, UITransform, Graphics, Color, Label, Layers, view, ResolutionPolicy, director, sys, resources, SpriteFrame, Sprite, tween, Vec3, Mask, Button, BlockInputEvents, UIOpacity, Texture2D, Rect, Size, Vec2, isValid } from 'cc';
+import { _decorator, Component, Node, Canvas, Camera, UITransform, Graphics, Color, Label, Layers, view, screen, ResolutionPolicy, director, sys, resources, SpriteFrame, Sprite, tween, Vec3, Mask, Button, BlockInputEvents, UIOpacity, Texture2D, Rect, Size, Vec2, isValid } from 'cc';
 import { createSave, HEROES, getUnlockedSlots, getStage, simulateBattle, settleBattle, setFormation, recruit, upgradeCommander, selectCommanderSkill, commanderUpgradeCost, RECRUIT_COST, getStrategy, setStrategy, STRATEGY_SKILLS, STRATEGY_CONDITIONS, STRATEGY_TARGETS } from './core/game';
 import type { Save, BattleUnit, BattleResult, BattleEvent, StrategyRule } from './core/game';
 import { stageFocus, stageCell, stageCover, preparationBackdrop, stageBackdrop } from './presentation/BattleStage';
@@ -13,6 +13,7 @@ export class GameApp extends Component {
   @property startInGame = false;
   private static session: { store: LocalSaveStore; save: Save; state: 'saved'|'unsaved'|'session'; error?: string } | null = null;
   private root!: Node;
+  private backgroundLayer: Node | null = null;
   private store!: LocalSaveStore;
   private saveState: 'saved'|'unsaved'|'session' = 'saved';
   private lastSaveError = '';
@@ -133,9 +134,11 @@ export class GameApp extends Component {
   }
   onLoad() {
     view.setDesignResolutionSize(720, 1280, ResolutionPolicy.SHOW_ALL);
-    this.root = this.make('Canvas', this.node, 0, 0, 720, 1280);
-    const canvas = this.root.addComponent(Canvas);
-    // SHOW_ALL may expose a wider camera view: constrain all scene artwork to portrait bounds.
+    const canvasNode = this.make('Canvas', this.node, 0, 0, 720, 1280);
+    const canvas = canvasNode.addComponent(Canvas);
+    this.backgroundLayer = this.make('ViewportBackground', canvasNode, 0, 0, 720, 1280);
+    this.root = this.make('SafeContent', canvasNode, 0, 0, 720, 1280);
+    // Only content is clipped; scenery independently covers the actual viewport.
     this.root.addComponent(Mask);
     const cameraNode = new Node('UICamera'); cameraNode.parent = this.node;
     const camera = cameraNode.addComponent(Camera); camera.projection = Camera.ProjectionType.ORTHO;
@@ -150,6 +153,7 @@ export class GameApp extends Component {
     this.generation++; this.displayGeneration++; this.presentationSerial++; this.presentationRequests.clear(); this.wantedPresentation.clear();
     this.swordRequest++; this.swordLoading = false; this.unscheduleAllCallbacks();
     if (this.root && isValid(this.root)) { this.root.active = false; this.detachSpriteFrames(this.root); }
+    if (this.backgroundLayer && isValid(this.backgroundLayer)) { this.backgroundLayer.active = false; this.detachSpriteFrames(this.backgroundLayer); }
     for (const frame of this.spellFrames.values()) frame.decRef();
     this.spellFrames.clear();
     for (const frame of this.swordFrames) frame.decRef();
@@ -255,25 +259,32 @@ export class GameApp extends Component {
     const button = n.addComponent(Button); button.transition = Button.Transition.NONE; button.interactable = active;
     n.on(Button.EventType.CLICK, () => { if (active && !this.running && isValid(n, true)) action(); }); return n;
   }
-  private clear() { this.displayGeneration++; this.backgroundSerial++; this.unitArtReady.clear(); this.unitArtFailed.clear(); const clip = this.root.getComponent(Mask); if (clip) clip.enabled = true; this.stageMode = false; this.stageLayer = null; this.stageUnits = []; this.stagePlacements.clear(); this.stageLabels.clear(); this.miniPortraits.clear(); this.miniMarkers.clear(); this.stageNames = null; this.stageCommander = null; this.generation++; this.unitActors.clear(); for (const child of [...this.root.children]) {
+  private clear() {
+    if (this.backgroundLayer) {
+      for (const child of [...this.backgroundLayer.children]) { this.detachSpriteFrames(child); child.destroy(); }
+      this.backgroundLayer.removeAllChildren(); this.backgroundLayer.active = true;
+    }
+    this.displayGeneration++; this.backgroundSerial++; this.unitArtReady.clear(); this.unitArtFailed.clear(); const clip = this.root.getComponent(Mask); if (clip) clip.enabled = true; this.stageMode = false; this.stageLayer = null; this.stageUnits = []; this.stagePlacements.clear(); this.stageLabels.clear(); this.miniPortraits.clear(); this.miniMarkers.clear(); this.stageNames = null; this.stageCommander = null; this.generation++; this.unitActors.clear(); for (const child of [...this.root.children]) {
       this.detachSpriteFrames(child); child.destroy();
     } this.root.removeAllChildren(); this.modal = null; this.saveStatusLabel = null; this.unitNodes.clear(); this.hpLabels.clear(); this.hpBars.clear(); this.unitPortraits.clear(); this.unitMarkers.clear(); this.feedbackLabels.clear(); this.unitHealth.clear(); this.unitEnergy.clear(); }
   private background(region = 0) {
     const generation = this.displayGeneration, request = ++this.backgroundSerial, name = preparationBackdrop(region);
+    const parent = this.backgroundLayer || this.root;
+    const windowSize = screen.windowSize, cover = stageCover(windowSize.width, windowSize.height);
     const backgrounds = ['battle-bamboo-portrait', 'battle-temple-portrait', 'battle-underworld-portrait', 'battle-bamboo', 'battle-temple'];
-    for (const old of this.root.children.filter(child => child.name === 'BackgroundArt')) { this.detachSpriteFrames(old); old.destroy(); }
+    for (const old of parent.children.filter(child => child.name === 'BackgroundArt')) { this.detachSpriteFrames(old); old.destroy(); }
     for (const key of backgrounds) if (key !== name) { this.spellFrames.get(key)?.decRef(); this.spellFrames.delete(key); }
-    this.box(this.root, 0, 0, 720, 1280, '#142c32', '#142c32');
-    const art = this.make('BackgroundArt', this.root, 0, 0, 720, 1280);
+    this.box(parent, 0, 0, cover.width, cover.height, '#142c32', '#142c32');
+    const art = this.make('BackgroundArt', parent, 0, 0, cover.width, cover.height);
     const alive = () => request === this.backgroundSerial && this.presentationAlive(art, generation);
     const apply = (sf: SpriteFrame, portrait: boolean, key: string) => {
       if (!alive()) return;
       this.cachePresentationFrame(key, sf);
       const sp = art.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = sf;
-      const scale = portrait ? Math.max(720 / sf.originalSize.width, 1280 / sf.originalSize.height)
-        : Math.max(720 / sf.originalSize.width, 1000 / (sf.originalSize.height * .25));
+      const scale = portrait ? Math.max(cover.width / sf.originalSize.width, cover.height / sf.originalSize.height)
+        : Math.max(cover.width / sf.originalSize.width, cover.height / (sf.originalSize.height * .25));
       art.getComponent(UITransform)!.setContentSize(sf.originalSize.width * scale, sf.originalSize.height * scale);
-      art.setPosition(0, portrait ? 0 : -640 + sf.originalSize.height * scale / 2);
+      art.setPosition(0, portrait ? 0 : -cover.height / 2 + sf.originalSize.height * scale / 2);
     };
     const legacyKey = region % 2 ? 'battle-temple' : 'battle-bamboo';
     const legacy = () => resources.load(`art/${legacyKey}/spriteFrame`, SpriteFrame, (err, sf) => { if (!err) apply(sf, false, legacyKey); });
@@ -357,8 +368,8 @@ export class GameApp extends Component {
   private enterBattleStage(units: BattleUnit[], stageKey = stageBackdrop(getStage(this.save.stage).regionIndex)) {
     this.stageMode = true; this.stageUnits = units; const generation = this.displayGeneration;
     const clip = this.root.getComponent(Mask); if (clip) clip.enabled = false;
-    const screen = view.getFrameSize(), cover = stageCover(screen.width, screen.height);
-    const previousBackdrop = this.root.children.find(child => child.name === 'BackgroundArt');
+    const windowSize = screen.windowSize, cover = stageCover(windowSize.width, windowSize.height);
+    const previousBackdrop = (this.backgroundLayer || this.root).children.find(child => child.name === 'BackgroundArt');
     for (const child of [...this.root.children]) child.active = child === previousBackdrop;
     const layer = this.make('BattleStage', this.root, 0, 0, 720, 1280); this.stageLayer = layer;
     const backdrop = this.make('StageBackdrop', layer, 0, 0, 720, 1280);
@@ -366,7 +377,7 @@ export class GameApp extends Component {
     const applyBackground = (sf: SpriteFrame, final: boolean) => {
       if (!this.presentationAlive(backdrop, generation)) return;
       this.cachePresentationFrame(stageKey, sf);
-      loading.node.destroy(); if (previousBackdrop && isValid(previousBackdrop, true)) previousBackdrop.active = false;
+      loading.node.destroy(); if (this.backgroundLayer) this.backgroundLayer.active = false; if (previousBackdrop && isValid(previousBackdrop, true)) previousBackdrop.active = false;
       const sprite = backdrop.addComponent(Sprite); sprite.spriteFrame = sf; sprite.sizeMode = Sprite.SizeMode.CUSTOM;
       const scale = Math.max(cover.width / sf.originalSize.width, (final ? cover.height : Math.max(1664, cover.height)) / sf.originalSize.height);
       backdrop.getComponent(UITransform)!.setContentSize(sf.originalSize.width * scale, sf.originalSize.height * scale);
@@ -429,15 +440,20 @@ export class GameApp extends Component {
     this.status = this.shadowText(skill, '灵契交锋', 0, 0, 26, PAPER, 420);
     this.shadowText(layer, `演出中 · 速度 ×${this.speed}`, 0, -580, 22, '#d8d9c8', 620);
     this.stageNames = this.make('StageNames', layer, 0, 0);
-    this.stageCommander = this.make('StageCommander', layer, -170, -210, 420, 500); this.stageCommander.active = false;
-    const commanderNode = this.stageCommander;
+    // A framed head-and-shoulders cut-in, never a half-body battlefield figure.
+    this.stageCommander = this.make('StageCommander', layer, -220, 330, 160, 160); this.stageCommander.active = false;
+    const ring = this.stageCommander.addComponent(Graphics);
+    ring.lineWidth = 2; ring.strokeColor = this.color(GOLD); ring.circle(0, 0, 79); ring.stroke();
+    const crop = this.make('CommanderCrop', this.stageCommander, 0, 0, 150, 150);
+    const mask = crop.addComponent(Mask); mask.type = Mask.Type.GRAPHICS_ELLIPSE; mask.segments = 64;
+    const commanderNode = this.make('CommanderPortrait', crop, 0, 0);
     const applyCommander = (frame: SpriteFrame) => {
-      const node = commanderNode;
-      if (!node || !isValid(node, true)) return;
-      const sprite = node.addComponent(Sprite); sprite.spriteFrame = frame; sprite.sizeMode = Sprite.SizeMode.CUSTOM;
-      const scale = Math.min(420 / frame.originalSize.width, 500 / frame.originalSize.height);
-      node.getComponent(UITransform)!.setContentSize(frame.originalSize.width * scale, frame.originalSize.height * scale);
-      node.setPosition(-170, 20);
+      if (!isValid(commanderNode, true)) return;
+      const sprite = commanderNode.addComponent(Sprite); sprite.spriteFrame = frame; sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+      // Source head/shoulders center (700,270); preserve source aspect and crop a 540px square.
+      const scale = 150 / 540, size = frame.originalSize;
+      commanderNode.getComponent(UITransform)!.setContentSize(size.width * scale, size.height * scale);
+      commanderNode.setPosition((size.width / 2 - 700) * scale, (270 - size.height / 2) * scale);
     };
     const cachedCommander = this.spellFrames.get('commander');
     if (cachedCommander && isValid(cachedCommander)) applyCommander(cachedCommander);
@@ -798,7 +814,9 @@ export class GameApp extends Component {
           const feedbackTarget = this.stageMode && !this.stagePlacements.has(e.target) ? this.miniPortraits.get(e.target) : target;
           if (feedbackTarget && e.amount) {
             // Event feedback only: this is not a character's authored body animation.
-            const v = this.label(feedbackTarget, `${e.type === 'heal' ? '+' : '-'}${e.amount}`, 0, 58, 26, e.type === 'heal' ? '#a8f0ad' : '#ffe2a2', 110);
+            const focus = e.type === 'heal' && this.stageMode ? this.stagePlacements.get(e.target) : undefined;
+            const v = this.shadowText(focus ? this.root : feedbackTarget, `${e.type === 'heal' ? '+' : '-'}${e.amount}`, focus ? focus.x : 0, focus ? focus.footY + focus.bodyHeight * .6 : 58, 26, e.type === 'heal' ? '#a8f0ad' : '#ffe2a2', 110);
+            v.isBold = true;
             tween(v.node).by((grouped ? .2 : .3) / this.speed, { position: new Vec3(0, 24, 0) }).call(() => v.node.destroy()).start();
           }
         }

@@ -6,10 +6,13 @@ export function stageFocus(units: StageMember[], actor?: string, targets: string
   const ids = [...new Set([actor, ...targets].filter((id): id is string => !!id && byId.has(id)))].slice(0, 2);
   const members = ids.map(id => byId.get(id)!);
   const sameSide = members.length === 2 && members[0].side === members[1].side;
-  return members.map((unit, index) => ({ uid: unit.uid,
-    x: (unit.side === 'ally' ? -1 : 1) * (sameSide ? (index === 1 ? 220 : 100) : unit.heroId === 'sword' ? 150 : 170),
-    footY: sameSide ? (index === 1 ? -130 : -270) : (unit.side === 'ally' ? -250 : -220),
-    bodyHeight: sameSide ? (index === 1 ? 330 : 410) : 440 }));
+  const support = sameSide && !!actor;
+  return members.map((unit, index) => {
+    const rear = support ? index === 0 : index === 1;
+    return { uid: unit.uid,
+    x: (unit.side === 'ally' ? -1 : 1) * (sameSide ? (rear ? 220 : 100) : unit.heroId === 'sword' ? 150 : 170),
+    footY: sameSide ? (rear ? -130 : -270) : (unit.side === 'ally' ? -250 : -220),
+    bodyHeight: sameSide ? (rear ? 330 : 410) : 440 }; });
 }
 export function stageCell(unit: StageMember) {
   // Front column faces the center; deaths keep their original, uncompressed cell.

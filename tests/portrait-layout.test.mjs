@@ -9,6 +9,8 @@ let source = readFileSync(new URL('../assets/scripts/GameApp.ts', import.meta.ur
 source = stripTypeScriptTypes(source.replace(/^@ccclass\([^\n]+\)\n/gm, '').replace(/@property /g, ''), { mode: 'strip' })
  .replace(/^import[^\n]+\n/gm, '').replace('export class GameApp', 'class GameApp');
 class FakeGraphics {}
+class FakeMask { static Type = Object.freeze({ GRAPHICS_RECT: 0, GRAPHICS_ELLIPSE: 1, GRAPHICS_STENCIL: 2, SPRITE_STENCIL: 3 }); }
+const screenMock = { windowSize: {width:390,height:844} };
 class FakeSprite { static SizeMode = { CUSTOM: 0 }; }
 class FakeTransform {}
 class FakeFrame {refs=0;isValid=true;reset(info){Object.assign(this,info);}addRef(){this.refs++;}decRef(){this.refs--;}}
@@ -36,7 +38,7 @@ const makeNode=(parent=null,x=0,y=0,w=0,h=0)=>{
 const motions=[];
 const tweenMock=target=>{const steps=[];const chain={};for(const name of ['to','by','delay','call'])chain[name]=(...args)=>{steps.push({name,args});return chain;};chain.start=()=>{motions.push({target,steps});return chain;};return chain;};
 class FakeVec3 {constructor(x,y,z){Object.assign(this,{x,y,z});}}
-const GameApp = new Function('_decorator','Component','Node','resources','SpriteFrame','Graphics','Color','Sprite','UITransform','LabelOutline','Button','BlockInputEvents','UIOpacity','Texture2D','Rect','Size','Vec2','tween','Vec3','isValid','stageFocus','stageCell','stageCover','preparationBackdrop','stageBackdrop','view','Mask',...Object.keys(core),source+'\nreturn GameApp;')({},class {},{EventType:{TOUCH_END:'tap'}},resources,FakeFrame,FakeGraphics,FakeColor,FakeSprite,FakeTransform,class {},FakeButton,class {},class {},class {},FakeRect,FakeSize,FakeVec2,tweenMock,FakeVec3,n=>!!n&&n.isValid!==false,stageFocus,stageCell,stageCover,preparationBackdrop,stageBackdrop,{getFrameSize:()=>({width:390,height:844})},class {},...Object.values(core));
+const GameApp = new Function('_decorator','Component','Node','resources','SpriteFrame','Graphics','Color','Sprite','UITransform','LabelOutline','Button','BlockInputEvents','UIOpacity','Texture2D','Rect','Size','Vec2','tween','Vec3','isValid','stageFocus','stageCell','stageCover','preparationBackdrop','stageBackdrop','screen','Mask',...Object.keys(core),source+'\nreturn GameApp;')({},class {},{EventType:{TOUCH_END:'tap'}},resources,FakeFrame,FakeGraphics,FakeColor,FakeSprite,FakeTransform,class {},FakeButton,class {},class {},class {},FakeRect,FakeSize,FakeVec2,tweenMock,FakeVec3,n=>!!n&&n.isValid!==false,stageFocus,stageCell,stageCover,preparationBackdrop,stageBackdrop,screenMock,FakeMask,...Object.values(core));
 function setup(stage=1) {
  resources.loads.length=0;
  const app=new GameApp(); app.root=makeNode();app.node=makeNode(); app.save=core.createSave(); app.save.stage=stage;
@@ -410,7 +412,7 @@ test('ready stage reuses cache synchronously for commander, banner and original 
  const app=setup(13);app.game();const units=core.simulateBattle(app.save).initialUnits;
  for(const name of [stageBackdrop(core.getStage(app.save.stage).regionIndex),'commander','ui-skill-banner',...units.map(u=>app.fighterArt(u.role,u.heroId).name)])app.spellFrames.set(name,Object.assign(new FakeFrame(),{originalSize:{width:name==='ui-skill-banner'?2172:941,height:name==='ui-skill-banner'?724:1670}}));
  const requests=resources.loads.length;app.enterBattleStage(units);assert.equal(resources.loads.length,requests,'no async re-fetch after readiness');
- assert.ok(app.stageCommander.getComponent(FakeSprite));assert.ok(app.nodes.find(n=>n.name==='SkillBanner').getComponent(FakeSprite));
+ assert.ok(app.nodes.find(n=>n.name==='CommanderPortrait').getComponent(FakeSprite));assert.ok(app.nodes.find(n=>n.name==='SkillBanner').getComponent(FakeSprite));
  for(const unit of units)assert.equal(app.miniPortraits.get(unit.uid).getComponent(FakeSprite).spriteFrame,app.spellFrames.get(app.fighterArt(unit.role,unit.heroId).name));
  const ninth=units.filter(u=>u.side==='enemy')[8];app.focusBattle(undefined,units.filter(u=>u.side==='enemy').map(u=>u.uid),true);const before=app.spellImpactPoint(ninth.uid);app.updateHealth(ninth.uid,0,true);assert.deepEqual(app.spellImpactPoint(ninth.uid),before,'death never relocates the real target miniature');
 });
@@ -479,4 +481,60 @@ test('actual cold game-to-fight resource callbacks complete the gate despite the
  }
  assert.equal(app.unitArtReady.size,app.unitNodes.size,'actual original-art callbacks populated readiness, no manual Set writes');
  const check=queue.shift();check();check();assert.equal(starts,1);assert.equal(app.presentationFailures.size,0);
+});
+
+test('viewport scenery covers tall and wide windows independently of the fixed safe content',()=>{
+ for(const [width,height] of [[390,844],[1440,900]]){
+  screenMock.windowSize={width,height};const app=setup();app.root.w=720;app.root.h=1280;app.root.addComponent(FakeMask);
+  const canvas=makeNode();app.backgroundLayer=makeNode(canvas);app.root.parent=canvas;
+  app.login();const frame=Object.assign(new FakeFrame(),{originalSize:{width:941,height:1672}});
+  resources.loads.find(r=>r.path==='art/battle-bamboo-portrait/spriteFrame').callback(null,frame);
+  const bg=app.nodes.find(n=>n.name==='BackgroundArt'),cover=stageCover(width,height);
+  assert.equal(bg.parent,app.backgroundLayer);assert.equal(app.root.parent,app.backgroundLayer.parent);
+  assert.ok(bg.w+1e-8>=cover.width&&bg.h+1e-8>=cover.height);assert.ok(Math.abs(bg.w/bg.h-941/1672)<1e-10);
+  assert.deepEqual([app.root.w,app.root.h,app.root.scaleX,app.root.scaleY],[720,1280,1,1]);
+  assert.equal(app.root.getComponent(FakeMask).enabled,true);assert.equal(app.backgroundLayer.getComponent(FakeMask),undefined);
+  let detached=false;frame.decRef=()=>{detached=bg.getComponent(FakeSprite).spriteFrame===null;frame.refs--;};
+  app.unscheduleAllCallbacks=()=>{};app.onDestroy();assert.equal(detached,true);assert.equal(frame.refs,0);
+ }
+ screenMock.windowSize={width:390,height:844};
+ const startup=source.slice(source.indexOf('onLoad()'),source.indexOf('onDestroy()'));
+ assert.match(startup,/canvasNode.addComponent\(Canvas\)/);assert.match(startup,/this.root = this.make\('SafeContent', canvasNode/);
+ assert.ok(!source.includes('getFrameSize'));
+});
+test('outer scenery is detached on clear, ignores late loads and stays behind the ready battle stage',()=>{
+ const app=setup();app.backgroundLayer=makeNode();app.login();const old=resources.loads[0];app.clear();const late=Object.assign(new FakeFrame(),{originalSize:{width:941,height:1672}});old.callback(null,late);assert.equal(late.refs,0);
+ app.game();const frame=Object.assign(new FakeFrame(),{originalSize:{width:941,height:1670}});app.cachePresentationFrame('battle-bamboo-stage',frame);
+ app.enterBattleStage(core.simulateBattle(app.save).initialUnits);assert.equal(app.backgroundLayer.active,false);
+ app.clear();assert.equal(app.backgroundLayer.active,true);assert.equal(app.backgroundLayer.children.length,0);
+});
+test('commander is a masked head-shoulders cut-in, with no source waist edge on the battlefield',()=>{
+ const app=setup();app.game();const frame=Object.assign(new FakeFrame(),{originalSize:{width:1299,height:1199}});app.cachePresentationFrame('commander',frame);
+ const units=core.simulateBattle(app.save).initialUnits;app.enterBattleStage(units);
+ const cut=app.stageCommander,crop=app.nodes.find(n=>n.name==='CommanderCrop'),art=app.nodes.find(n=>n.name==='CommanderPortrait');
+ assert.deepEqual([cut.x,cut.y,cut.w,cut.h],[-220,330,160,160]);assert.equal(crop.getComponent(FakeMask).type,FakeMask.Type.GRAPHICS_ELLIPSE);assert.equal(crop.w,150);assert.equal(crop.h,150);
+ assert.equal(art.parent,crop);assert.ok(Math.abs(art.w/art.h-1299/1199)<1e-10);assert.ok(art.y-art.h/2<-75);
+ assert.equal(cut.getComponent(FakeSprite),undefined);assert.equal(cut.active,false);
+ app.focusBattle(undefined,units.filter(u=>u.side==='enemy').map(u=>u.uid),true);assert.equal(cut.active,true);
+ app.focusBattle(units[0].uid,[units.at(-1).uid]);assert.equal(cut.active,false);
+});
+test('healing recipient is foreground and positive feedback is above all stage figures',()=>{
+ const app=setup(13);app.game();app.isValid=true;const result=core.simulateBattle(app.save),units=result.initialUnits;
+ const actor=units.find(u=>u.side==='ally'&&u.heroId==='healer'),target=units.find(u=>u.side==='ally'&&u.role==='guard');
+ result.events=[{type:'action',actor:actor.uid,energyAfter:0,actionSkill:'classSkill',text:'治疗',round:1},{type:'heal',actor:actor.uid,target:target.uid,hp:target.hp,amount:36,text:'恢复',round:1},{type:'end',text:'结束',round:1}];
+ app.replayBattle(result,app.generation);const float=app.nodes.find(n=>n.text==='+36'),focus=app.stagePlacements.get(target.uid);
+ assert.equal(float.parent,app.root);assert.equal(float.x,focus.x);assert.equal(float.y,focus.footY+focus.bodyHeight*.6);
+ const foreground=app.unitNodes.get(target.uid),rear=app.unitNodes.get(actor.uid);assert.ok(foreground.parent.children.indexOf(foreground)>rear.parent.children.indexOf(rear));
+ assert.ok(app.root.children.indexOf(float)>app.root.children.indexOf(app.stageLayer));
+});
+
+test('positive and negative event numbers have dark outlines without changing size or timing',()=>{
+ for(const type of ['heal','attack']){
+  const app=setup(13);app.game();app.isValid=true;const result=core.simulateBattle(app.save),units=result.initialUnits;
+  const actor=units.find(u=>u.side==='ally'&&u.heroId==='healer'),target=units.find(u=>u.side===(type==='heal'?'ally':'enemy')&&u.role==='guard');
+  let feedback;const shadow=app.shadowText;app.shadowText=function(...args){const label=shadow.apply(this,args);if(args[1]===(type==='heal'?'+36':'-36'))feedback=label;return label;};
+  const scheduled=[];app.scheduleOnce=(fn,delay)=>scheduled.push({fn,delay});
+  result.events=[{type:'action',actor:actor.uid,energyAfter:0,actionSkill:'classSkill',text:'行动',round:1},{type,actor:actor.uid,target:target.uid,hp:target.hp,amount:36,text:'效果',round:1},{type:'end',text:'结束',round:1}];
+  app.replayBattle(result,app.generation);assert.ok(feedback);assert.equal(feedback.enableOutline,true);assert.equal(feedback.outlineWidth,2);assert.ok(feedback.outlineColor);assert.equal(feedback.isBold,true);assert.equal(feedback.node.fontSize,26);assert.equal(scheduled[0].delay,.38);
+ }
 });
