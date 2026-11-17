@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 const root = new URL('../', import.meta.url);
 const read = p => readFileSync(new URL(p, root), 'utf8');
 const json = p => JSON.parse(read(p));
@@ -30,9 +30,14 @@ test('Creator version and resolution are explicit',()=>{
 });
 
 test('every original PNG has a reproducible SpriteFrame import and matching dimensions', () => {
- for (const name of ['battle-bamboo','battle-temple','commander','fighter-sword','fighter-guardian','fighter-healer']) {
+ const ids = new Set();
+ for (const file of readdirSync(new URL('assets/resources/art/', root)).filter(p => p.endsWith('.png'))) {
+  const name = file.slice(0, -4);
   const path=`assets/resources/art/${name}.png`;
   const bytes=readFileSync(new URL(path,root)); const meta=json(path+'.meta');
+  assert.equal(bytes.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+  assert.equal(bytes.subarray(-8).toString('hex'), '49454e44ae426082', `${name}: incomplete PNG`);
+  assert.ok(!ids.has(meta.uuid), `${name}: duplicate UUID`); ids.add(meta.uuid);
   assert.equal(meta.userData.type,'sprite-frame');
   const frame=meta.subMetas.f9941; const texture=meta.subMetas['6c48a'];
   assert.equal(frame.name,'spriteFrame'); assert.equal(frame.importer,'sprite-frame');

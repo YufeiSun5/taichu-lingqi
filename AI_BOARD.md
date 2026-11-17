@@ -63,3 +63,14 @@ portrait-ui 继续独占 GameApp.ts 及 tests/portrait-layout.test.mjs，可新�
 
 真实引擎类型诊断：Mac 的 Creator 3.8.8 附带 TypeScript5.8.2 在生成 target ES2015 下缺少 includes/entries/fromEntries/flatMap 库声明；云端根 tsconfig 显式 ES2019/DOM lib 待实测复验。未凭 strip-types 测试称完整类型检查通过。
 用户观看当前画面后明确不接受其视觉品质。PORTRAIT-01 功能布局和现有资产均非美术验收；优先根据真实截图重做构图、比例、材质/UI及演出，不以几何控件齐全称完成。
+
+vfx-art 独占 fx-sword.png / fx-fireball.png 及各自 meta；正式透明手绘法术源图，供轨迹/组合播放，不称完整逐帧动画。未合格前不接入、不提交。
+
+role-art 首批叶流风/赤璃已完成像素检查，集成负责人已目视，尚待游戏实际比例/边缘验收。继续独占 fighter-frost.png / fighter-monk.png 及 meta，制作白凝霜与玄照独立设计，不将职业图复用称完整名册。其他共享来源记录仍由集成负责人维护。
+
+role-art 第二批白凝霜/玄照透明独立素材已产出，仍需场景边缘/脚点验收。继续独占 fighter-blade.png、fighter-lotus.png 及 meta，完成夜无痕/莲心人物身份；这仅补足九人静态名册，不等同动作完成。
+
+vfx-art 后续独占 fighter-sword-actions.png 及 meta，研发凌霄身份一致的正式动作姿势图集；必须验证等格切片/人物体积/脚底/连续性，未合格不接入、不以四张姿势宣布动画完成。由生成工具制作图像，运行时SpriteFrame裁格而非脚本重绘。
+
+### PORTRAIT-03 实质美术重做（2026-11-17）
+九名独立原创静态角色、连续地面竖屏竹林背景和两张法术源图已完成源文件检查；薄顶栏/紧凑操作区/放大角色/脚点/标准按钮/法术命中时序正在集成，必须按新提交在Creator390×844重验。现有画面被用户否定，不能沿用此前美术通过结论。portrait-ui追加最小tests/app-storage.test.mjs的引擎mock兼容权限，不改变存储规则；集成负责人维护工程资源契约与文档。portrait-art继续仅负责battle-temple-portrait.png/meta，尚未纳入本轮提交。motionatlas仍在scratch独立审阅，未合格不得入库。

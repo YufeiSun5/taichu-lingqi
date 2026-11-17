@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Canvas, Camera, UITransform, Graphics, Color, Label, Layers, view, ResolutionPolicy, director, sys, resources, SpriteFrame, Sprite, tween, Vec3 } from 'cc';
+import { _decorator, Component, Node, Canvas, Camera, UITransform, Graphics, Color, Label, Layers, view, ResolutionPolicy, director, sys, resources, SpriteFrame, Sprite, tween, Vec3, Mask, LabelOutline, Button, BlockInputEvents, UIOpacity, isValid } from 'cc';
 import { createSave, HEROES, getUnlockedSlots, getStage, simulateBattle, settleBattle, setFormation, recruit, upgradeCommander, selectCommanderSkill, commanderUpgradeCost, RECRUIT_COST, getStrategy, setStrategy, STRATEGY_SKILLS, STRATEGY_CONDITIONS, STRATEGY_TARGETS } from './core/game';
 import type { Save, BattleUnit, BattleResult, StrategyRule } from './core/game';
 import { LocalSaveStore } from './infrastructure/LocalSaveStore';
@@ -31,10 +31,23 @@ export class GameApp extends Component {
   private status!: Label;
   private generation = 0;
   private resultAwarded = false;
+  private spellFrames = new Map<string, SpriteFrame>();
+  private preloadSpells() {
+    for (const name of ['fx-sword', 'fx-fireball']) resources.load(`art/${name}/spriteFrame`, SpriteFrame, (err, frame) => {
+      if (!err && frame && isValid(frame) && isValid(this, true) && isValid(this.node, true)) {
+        frame.addRef();
+        this.spellFrames.get(name)?.decRef();
+        this.spellFrames.set(name, frame);
+      }
+    });
+  }
   onLoad() {
+    this.preloadSpells();
     view.setDesignResolutionSize(720, 1280, ResolutionPolicy.SHOW_ALL);
     this.root = this.make('Canvas', this.node, 0, 0, 720, 1280);
     const canvas = this.root.addComponent(Canvas);
+    // SHOW_ALL may expose a wider camera view: constrain all scene artwork to portrait bounds.
+    this.root.addComponent(Mask);
     const cameraNode = new Node('UICamera'); cameraNode.parent = this.node;
     const camera = cameraNode.addComponent(Camera); camera.projection = Camera.ProjectionType.ORTHO;
     camera.orthoHeight = 640; camera.near = 0.1; camera.far = 2000; camera.clearFlags = Camera.ClearFlag.SOLID_COLOR;
@@ -44,7 +57,11 @@ export class GameApp extends Component {
     if (shared) { this.store = shared.store; this.save = shared.save; this.saveState = shared.state; this.lastSaveError = shared.error || ''; this.renderEntry(); }
     else { this.store = new LocalSaveStore(sys.localStorage, STORE); this.load(); }
   }
-  onDestroy() { this.generation++; this.unscheduleAllCallbacks(); }
+  onDestroy() {
+    this.generation++; this.unscheduleAllCallbacks();
+    for (const frame of this.spellFrames.values()) frame.decRef();
+    this.spellFrames.clear();
+  }
   private renderEntry() { this.startInGame ? this.game() : this.login(); }
   private retainSession() { GameApp.session = { store: this.store, save: this.save, state: this.saveState, error: this.lastSaveError }; }
   private load() {
@@ -112,71 +129,136 @@ export class GameApp extends Component {
     l.horizontalAlign = Label.HorizontalAlign.CENTER; l.verticalAlign = Label.VerticalAlign.CENTER;
     l.overflow = Label.Overflow.SHRINK; return l;
   }
+  private ribbon(parent: Node, x: number, y: number, w: number, h: number, primary = false) {
+    const n = this.make('JadeFrame', parent, x, y, w, h); const g = n.addComponent(Graphics);
+    const bevel = Math.min(13, h / 4);
+    const shape = (inset: number) => {
+      const l = -w / 2 + inset, r = w / 2 - inset, b = -h / 2 + inset, t = h / 2 - inset;
+      g.moveTo(l + bevel, b); g.lineTo(r - bevel, b); g.lineTo(r, b + bevel); g.lineTo(r, t - bevel);
+      g.lineTo(r - bevel, t); g.lineTo(l + bevel, t); g.lineTo(l, t - bevel); g.lineTo(l, b + bevel); g.close();
+    };
+    g.fillColor = this.color(primary ? '#725833' : '#142d35'); shape(0); g.fill();
+    g.strokeColor = this.color(primary ? '#ebd296' : '#a18a5d'); g.lineWidth = 2; shape(1); g.stroke();
+    g.strokeColor = this.color(primary ? '#a68c52' : '#31545b'); g.lineWidth = 1; shape(6); g.stroke();
+    // Restrained lacquer highlights and gold corner inlays, not a flat form field.
+    g.fillColor = new Color(222, 231, 208, primary ? 30 : 13); g.rect(-w / 2 + 15, 3, w - 30, h / 2 - 13); g.fill();
+    g.strokeColor = this.color('#d6b979'); g.lineWidth = 2;
+    for (const direction of [-1, 1]) {
+      const px = direction * (w / 2 - 12); g.moveTo(px, -9); g.lineTo(px - direction * 5, 0); g.lineTo(px, 9);
+    }
+    g.stroke(); return n;
+  }
+  private shadowText(parent: Node, value: string, x: number, y: number, size = 24, color = PAPER, w = 640) {
+    const label = this.label(parent, value, x, y, size, color, w);
+    const outline = label.node.addComponent(LabelOutline); outline.color = this.color('#0a1a22'); outline.width = 2;
+    return label;
+  }
   private button(parent: Node, value: string, x: number, y: number, w: number, action: () => void, active = true) {
-    const n = this.box(parent, x, y, w, 80, active ? '#28434a' : '#263235', active ? GOLD : '#586466');
-    this.label(n, value, 0, 0, 24, active ? PAPER : '#82918f', w - 14);
-    n.on(Node.EventType.TOUCH_END, () => { if (active && !this.running) action(); }); return n;
+    const primary = value === '开始战斗' || value === '踏入仙途';
+    const n = this.ribbon(parent, x, y, w, 80, primary);
+    const label = this.shadowText(n, value, 0, 0, primary ? 28 : 24, active ? PAPER : '#82918f', w - 22);
+    label.isBold = primary;
+    const button = n.addComponent(Button); button.transition = Button.Transition.NONE; button.interactable = active;
+    n.on(Button.EventType.CLICK, () => { if (active && !this.running && isValid(n, true)) action(); }); return n;
   }
   private clear() { for (const child of [...this.root.children]) child.destroy(); this.root.removeAllChildren(); this.modal = null; this.saveStatusLabel = null; this.unitNodes.clear(); this.hpLabels.clear(); this.hpBars.clear(); this.unitPortraits.clear(); this.unitMarkers.clear(); this.feedbackLabels.clear(); this.unitHealth.clear(); this.unitEnergy.clear(); }
   private background(region = 0) {
-    this.box(this.root, 0, 0, 720, 1280, ['#31545b', '#4b5367', '#4b454c'][region % 3], '#31545b');
-    // Keep the landscape's original ratio; the portrait viewport crops its sides.
+    this.box(this.root, 0, 0, 720, 1280, '#142c32', '#142c32');
     const art = this.make('BackgroundArt', this.root, 0, 0, 720, 1280);
-    resources.load(`art/${region % 2 ? 'battle-temple' : 'battle-bamboo'}/spriteFrame`, SpriteFrame, (err, sf) => {
-      if (!err && art.isValid) {
-        const sp = art.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = sf;
-        const scale = Math.max(720 / sf.originalSize.width, 1280 / sf.originalSize.height);
-        art.getComponent(UITransform)!.setContentSize(sf.originalSize.width * scale, sf.originalSize.height * scale);
-      }
-    });
+    const apply = (sf: SpriteFrame, portrait: boolean) => {
+      if (!isValid(art, true)) return;
+      const sp = art.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = sf;
+      // Portrait art has its walkable ground in the central/lower field. The legacy
+      // landscape fallback crops to its lower quarter instead of floating actors in sky.
+      const scale = portrait ? Math.max(720 / sf.originalSize.width, 1280 / sf.originalSize.height)
+        : Math.max(720 / sf.originalSize.width, 1000 / (sf.originalSize.height * .25));
+      art.getComponent(UITransform)!.setContentSize(sf.originalSize.width * scale, sf.originalSize.height * scale);
+      art.setPosition(0, portrait ? 0 : -640 + sf.originalSize.height * scale / 2);
+    };
+    const legacy = () => resources.load(`art/${region % 2 ? 'battle-temple' : 'battle-bamboo'}/spriteFrame`, SpriteFrame, (err, sf) => { if (!err) apply(sf, false); });
+    if (region % 2) legacy();
+    else resources.load('art/battle-bamboo-portrait/spriteFrame', SpriteFrame, (err, sf) => { if (err) legacy(); else apply(sf, true); });
+  }
+  private edgeVeil(parent: Node, top: boolean, depth = 200) {
+    const n = this.make(top ? 'TopVignette' : 'BottomVignette', parent, 0, 0); const g = n.addComponent(Graphics);
+    for (let i = 0; i < 16; i++) {
+      const strip = depth / 16; g.fillColor = new Color(8, 24, 30, Math.round(225 * (1 - i / 16)));
+      g.rect(-360, top ? 640 - (i + 1) * strip : -640 + i * strip, 720, strip + 1); g.fill();
+    }
   }
   private login() {
-    this.clear(); this.background();
-    this.box(this.root, 0, 10, 640, 700, '#173038');
-    this.label(this.root, '太 初 灵 契', 0, 220, 58, GOLD, 600);
-    this.label(this.root, '结契同道 · 以阵问天', 0, 100, 28);
-    this.label(this.root, '仙侠策略 · 自动战斗', 0, 25, 24, '#c4d8ce');
-    this.button(this.root, '踏入仙途', 0, -120, 440, () => director.loadScene('Game'));
-    this.label(this.root, '本地游客｜未接入平台登录及支付', 0, -250, 22, '#c4d8ce', 580);
-    this.saveStatusLabel = this.label(this.root, this.saveDescription(), 0, -580, 22, GOLD);
+    this.clear(); this.background(); this.edgeVeil(this.root, true, 300);
+    const portrait = this.make('LoginCommander', this.root, 35, 20, 700, 700);
+    resources.load('art/commander/spriteFrame', SpriteFrame, (err, sf) => {
+      if (!err && isValid(portrait, true)) {
+        const scale = Math.min(760 / sf.originalSize.width, 760 / sf.originalSize.height);
+        const sp = portrait.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = sf;
+        portrait.getComponent(UITransform)!.setContentSize(sf.originalSize.width * scale, sf.originalSize.height * scale);
+      }
+    });
+    this.edgeVeil(this.root, false, 430);
+    this.shadowText(this.root, '太 初 灵 契', 0, 490, 64, GOLD, 660);
+    this.shadowText(this.root, '结契同道 · 以阵问天', 0, 390, 28, PAPER, 620);
+    this.shadowText(this.root, '灵契仙使 · 邀君共赴山海', 0, -310, 24, PAPER, 620);
+    this.button(this.root, '踏入仙途', 0, -425, 490, () => director.loadScene('Game'));
+    this.shadowText(this.root, '本地游客｜未接入平台登录及支付', 0, -510, 20, '#d2d9ce', 620);
+    this.saveStatusLabel = this.shadowText(this.root, this.saveDescription(), 0, -580, 18, GOLD);
   }
   private game() {
     this.clear(); const stage = getStage(this.save.stage); this.background(stage.regionIndex);
-    this.box(this.root, 0, 525, 672, 150);
-    this.label(this.root, '太初灵契', -170, 555, 30, GOLD, 280);
-    this.label(this.root, `灵石 ${this.save.coins}`, 190, 555, 24, GOLD, 260);
-    this.label(this.root, `${stage.regionName} · ${stage.wave}/6    第 ${stage.number} 关`, 0, 490, 24, PAPER, 640);
-    this.label(this.root, '我方阵容', -185, 430, 18, PAPER, 280);
-    this.label(this.root, '敌方阵容', 185, 430, 18, PAPER, 280);
+    this.edgeVeil(this.root, true, 160);
+    const top = this.ribbon(this.root, 0, 555, 672, 70);
+    this.shadowText(top, '太初灵契', -205, 0, 26, GOLD, 230);
+    this.shadowText(top, `第 ${stage.number} 关`, 20, 0, 24, PAPER, 200);
+    this.shadowText(top, `灵石 ${this.save.coins}`, 225, 0, 24, GOLD, 180);
+    const chapter = this.ribbon(this.root, 0, 475, 470, 52);
+    this.shadowText(chapter, `${stage.regionName} · ${stage.wave} / 6`, 0, 0, 24, PAPER, 430);
     let battle;
     try { battle = simulateBattle(this.save); } catch { battle = { initialUnits: [] as BattleUnit[] }; }
-    for (const u of battle.initialUnits) this.drawUnit({ ...u, hp: u.maxHp });
-    this.box(this.root, 0, -420, 672, 350);
+    // Back rows first, front rows last: lower ground figures overlap upper ones naturally.
+    for (const u of [...battle.initialUnits].sort((a, b) => a.row - b.row || b.col - a.col)) this.drawUnit({ ...u, hp: u.maxHp });
+    this.edgeVeil(this.root, false, 280);
     const empty = getUnlockedSlots(this.save.stage).filter(i => !this.save.formation[i]).length;
-    this.status = this.label(this.root, empty ? `已解锁 ${getUnlockedSlots(this.save.stage).length} 阵位 · ${empty} 个空位可上阵` : '战前布阵 · 点击角色查看详情', 0, -290, 24, '#d5e1d8', 620);
-    this.button(this.root, '布阵', -246, -380, 146, () => this.formation());
-    this.button(this.root, '招募', -82, -380, 146, () => this.recruitment());
-    this.button(this.root, '指挥官', 82, -380, 146, () => this.commander());
-    this.button(this.root, '策略', 246, -380, 146, () => this.strategies());
-    this.button(this.root, this.saveState === 'unsaved' ? '重试保存' : `速度 ×${this.speed}`, -240, -480, 160, () => {
+    const statusBand = this.ribbon(this.root, 0, -355, 660, 54);
+    this.status = this.shadowText(statusBand, empty ? `已解锁 ${getUnlockedSlots(this.save.stage).length} 阵位 · ${empty} 个空位可上阵` : '战前布阵 · 点击角色查看详情', 0, 0, 22, PAPER, 620);
+    this.button(this.root, '布阵', -246, -425, 146, () => this.formation());
+    this.button(this.root, '招募', -82, -425, 146, () => this.recruitment());
+    this.button(this.root, '指挥官', 82, -425, 146, () => this.commander());
+    this.button(this.root, '策略', 246, -425, 146, () => this.strategies());
+    this.button(this.root, this.saveState === 'unsaved' ? '重试保存' : `速度 ×${this.speed}`, -240, -520, 160, () => {
       if (this.saveState === 'unsaved') this.savePanel(); else { this.speed = this.speed === 1 ? 2 : 1; this.game(); }
     });
-    this.button(this.root, '开始战斗', 0, -480, 280, () => this.fight());
-    this.button(this.root, '返回', 240, -480, 160, () => director.loadScene('Login'));
-    this.saveStatusLabel = this.label(this.root, this.saveDescription(), 0, -565, 20, GOLD, 640);
+    this.button(this.root, '开始战斗', 0, -520, 280, () => this.fight());
+    this.button(this.root, '返回', 240, -520, 160, () => director.loadScene('Login'));
+    this.saveStatusLabel = this.shadowText(this.root, this.saveDescription(), 0, -585, 20, GOLD, 640);
+  }
+  private battlePlacement(u: BattleUnit) {
+    const slots = getUnlockedSlots(this.save.stage);
+    const columns = Math.max(...slots.map(i => i % 3)) + 1;
+    const rows = Math.max(...slots.map(i => Math.floor(i / 3))) + 1;
+    const side = u.side === 'ally' ? -1 : 1;
+    const bodyHeight = columns === 3 ? 132 : rows === 3 ? 156 : 170;
+    return { bodyHeight, width: columns === 3 ? 98 : 126,
+      x: side * (columns === 3 ? 86 + u.col * 100 : 110 + u.col * 140),
+      y: (rows === 2 ? 200 - u.row * 310 : 250 - u.row * 250) + 40 };
   }
   // Source-pixel anchors visually checked against the current full-body originals.
   // bodyTop excludes projecting weapons; ground is between the two boot contacts.
   // Future hero-specific illustrations supply their own anchors, not a shared crop.
-  private fighterArt(role: string) {
+  private fighterArt(role: string, heroId?: string) {
+    if (heroId === 'archer') return { name: 'fighter-archer', groundX: 484, groundY: 1389, bodyTop: 25 };
+    if (heroId === 'mage') return { name: 'fighter-mage', groundX: 552, groundY: 1285, bodyTop: 70 };
+    if (heroId === 'blade') return { name: 'fighter-blade', groundX: 459, groundY: 1183, bodyTop: 20 };
+    if (heroId === 'lotus') return { name: 'fighter-lotus', groundX: 504, groundY: 1282, bodyTop: 45 };
+    if (heroId === 'frost') return { name: 'fighter-frost', groundX: 528, groundY: 1283, bodyTop: 42 };
+    if (heroId === 'monk') return { name: 'fighter-monk', groundX: 578, groundY: 1264, bodyTop: 13 };
     if (role === 'guard') return { name: 'fighter-guardian', groundX: 625, groundY: 1240, bodyTop: 105 };
     if (role === 'healer' || role === 'mage') return { name: 'fighter-healer', groundX: 590, groundY: 1265, bodyTop: 50 };
     return { name: 'fighter-sword', groundX: 470, groundY: 1254, bodyTop: 6 };
   }
   private drawUnit(u: BattleUnit) {
-    const side = u.side === 'ally' ? -1 : 1;
-    const x = side * (70 + u.col * 100); const y = 280 - u.row * 200;
-    const n = this.make(u.uid, this.root, x, y, 96, 150); this.unitNodes.set(u.uid, n);
+    const layout = this.battlePlacement(u);
+    const n = this.make(u.uid, this.root, layout.x, layout.y, layout.width, layout.bodyHeight + 100); this.unitNodes.set(u.uid, n);
     n.on(Node.EventType.TOUCH_END, () => { if (!this.running) this.unitDetail(u); });
     this.unitHealth.set(u.uid, { hp: u.hp, maxHp: u.maxHp, dead: u.hp <= 0, side: u.side });
     // Shadow survives successful art loading and stays on the formation ground.
@@ -187,13 +269,13 @@ export class GameApp extends Component {
     this.unitMarkers.set(u.uid, marker);
     // Art, HUD and ground are separate; feedback never moves or scales the HUD.
     const portrait = this.make('FighterArt', n, 0, 14, 90, 112); this.unitPortraits.set(u.uid, portrait);
-    const art = this.fighterArt(u.role);
+    const art = this.fighterArt(u.role, u.heroId);
     const loading = this.label(n, '载入角色…', 0, 15, 18, GOLD, 96);
     resources.load(`art/${art.name}/spriteFrame`, SpriteFrame, (err, sf) => {
-      if (!portrait.isValid) return;
+      if (!isValid(portrait, true)) return;
       if (err) { loading.string = '角色图未载入'; return; }
       loading.node.destroy();
-      const scale = 112 / (art.groundY - art.bodyTop);
+      const scale = layout.bodyHeight / (art.groundY - art.bodyTop);
       const mirror = u.side === 'enemy' ? -1 : 1;
       // Mirror the anchor offset together with the image so both feet stay grounded.
       portrait.setPosition((sf.originalSize.width / 2 - art.groundX) * scale * mirror,
@@ -204,10 +286,11 @@ export class GameApp extends Component {
       if (this.unitHealth.get(u.uid)?.dead) sp.color = new Color(140, 145, 150, 90);
     });
     const hud = this.make('UnitHUD', n, 0, 0);
-    this.label(hud, u.name, 0, -63, 24, PAPER, 98);
+    const plaque = this.ribbon(hud, 0, -64, layout.width, 34);
+    this.shadowText(plaque, u.name, 0, 0, 24, PAPER, layout.width - 8);
     const bar = this.make('HealthBar', hud, 0, -86, 86, 10).addComponent(Graphics); this.hpBars.set(u.uid, bar);
     const hp = this.label(hud, '', 0, -108, 20, '#d1f4d4', 98); this.hpLabels.set(u.uid, hp);
-    this.feedbackLabels.set(u.uid, this.label(hud, '', 0, 96, 18, GOLD, 98));
+    this.feedbackLabels.set(u.uid, this.shadowText(hud, '', 0, layout.bodyHeight - 20, 18, GOLD, layout.width));
     const energy = this.make('EnergyPips', hud, 0, -108, 32, 12).addComponent(Graphics);
     this.unitEnergy.set(u.uid, { value: u.energy, graphic: energy });
     this.updateHealth(u.uid, u.hp);
@@ -249,16 +332,16 @@ export class GameApp extends Component {
       const g = this.unitMarkers.get(uid); if (g) {
         g.strokeColor = this.color(color); g.lineWidth = 3; g.ellipse(0, 0, 42, 10); g.stroke();
       }
-      const label = this.feedbackLabels.get(uid); if (label) { label.string = text; label.color = this.color(color); }
+      // Actor/target are shown by their ground rings; avoid debug words over fine art.
     };
     mark(actor, actionSkill === 'classSkill' ? '技能' : actionSkill === 'attack' ? '普攻' : '行动', '#ffe6a4'); mark(target, healing ? '治疗' : '受击', healing ? '#b0f5bd' : '#ffbb9e');
   }
   private unitDetail(u: BattleUnit) {
     const p = this.open(`${u.name} · ${u.side === 'ally' ? '我方' : '敌方'}`); if (!p) return;
     const art = this.make('UnitDetailArt', p, 0, 205, 420, 440);
-    const artName = this.fighterArt(u.role).name;
+    const artName = this.fighterArt(u.role, u.heroId).name;
     resources.load(`art/${artName}/spriteFrame`, SpriteFrame, (err, sf) => {
-      if (!err && art.isValid) {
+      if (!err && isValid(art, true)) {
         const sp = art.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = sf;
         const scale = Math.min(420 / sf.originalSize.width, 440 / sf.originalSize.height);
         art.getComponent(UITransform)!.setContentSize(sf.originalSize.width * scale, sf.originalSize.height * scale);
@@ -274,7 +357,7 @@ export class GameApp extends Component {
     if (this.running) return null;
     if (this.modal) this.modal.destroy();
     const mask = this.box(this.root, 0, 0, 720, 1280, '#142b32', '#142b32');
-    mask.on(Node.EventType.TOUCH_END, (e: any) => e.propagationStopped = true);
+    mask.addComponent(BlockInputEvents);
     this.modal = mask; this.label(mask, title, -60, 550, 30, GOLD, 470);
     this.saveStatusLabel = this.label(mask, this.saveDescription(), 0, -580, 20, GOLD, 640);
     this.button(mask, '关闭', 260, 550, 120, () => { this.selected = null; this.modal?.destroy(); this.modal = null; this.game(); }); return mask;
@@ -373,7 +456,7 @@ export class GameApp extends Component {
     const p = this.open('指挥官 · 灵契仙使'); if (!p) return;
     const portrait = this.make('CommanderPortrait', p, 0, 230, 470, 430);
     resources.load('art/commander/spriteFrame', SpriteFrame, (err, sf) => {
-      if (!err && portrait.isValid) {
+      if (!err && isValid(portrait, true)) {
         const sp = portrait.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = sf;
         const scale = Math.min(470 / sf.originalSize.width, 430 / sf.originalSize.height);
         portrait.getComponent(UITransform)!.setContentSize(sf.originalSize.width * scale, sf.originalSize.height * scale);
@@ -398,7 +481,7 @@ export class GameApp extends Component {
       pendingAction = null;
     };
     // Block navigation while replay is running: results must only be settled once.
-    const blocker = this.make('BattleInputGuard', this.root, 0, -420, 720, 400);
+    const blocker = this.make('BattleInputGuard', this.root, 0, -475, 720, 300);
     blocker.on(Node.EventType.TOUCH_END, (e: any) => e.propagationStopped = true);
     const advance = () => {
       if (!this.isValid || token !== this.generation) return;
@@ -425,32 +508,68 @@ export class GameApp extends Component {
         advance(); return;
       }
       if (e.type === 'end') finishAction();
-      this.status.string = e.text;
-      this.eventFeedback(e.actor || pendingAction?.actor, e.target, e.type === 'heal', pendingAction?.actionSkill);
-      if (e.type === 'commander' && e.target) this.spellEffect(e.target, this.save.commanderSkill);
-      if (e.target) {
-        const target = this.unitNodes.get(e.target);
-        if (typeof e.hp === 'number') this.updateHealth(e.target, e.hp, e.type === 'death');
-        else if (e.type === 'death') this.updateHealth(e.target, 0, true);
-        if (target && e.amount) {
-          // Event feedback only: this is not a character's authored body animation.
-          const v = this.label(target, `${e.type === 'heal' ? '+' : '-'}${e.amount}`, 0, 58, 26, e.type === 'heal' ? '#a8f0ad' : '#ffe2a2', 110);
-          tween(v.node).by(.3 / this.speed, { position: new Vec3(0, 24, 0) }).call(() => v.node.destroy()).start();
+      this.status.string = e.type === 'commander' ? `${e.skill || '指挥官神通'} · 施法` : e.text;
+      let displayed = false;
+      const displayImpact = () => {
+        if (displayed || !this.isValid || token !== this.generation || !isValid(this.root, true)) return;
+        const target = e.target ? this.unitNodes.get(e.target) : undefined;
+        if (target && !isValid(target, true)) return;
+        displayed = true;
+        this.status.string = e.text;
+        this.eventFeedback(e.actor || pendingAction?.actor, e.target, e.type === 'heal', pendingAction?.actionSkill);
+        if (e.target) {
+          const target = this.unitNodes.get(e.target);
+          if (typeof e.hp === 'number') this.updateHealth(e.target, e.hp, e.type === 'death');
+          else if (e.type === 'death') this.updateHealth(e.target, 0, true);
+          if (target && e.amount) {
+            // Event feedback only: this is not a character's authored body animation.
+            const v = this.label(target, `${e.type === 'heal' ? '+' : '-'}${e.amount}`, 0, 58, 26, e.type === 'heal' ? '#a8f0ad' : '#ffe2a2', 110);
+            tween(v.node).by(.3 / this.speed, { position: new Vec3(0, 24, 0) }).call(() => v.node.destroy()).start();
+          }
         }
-      }
+      };
+      if (e.type === 'commander' && e.target) {
+        this.eventFeedback(); // Clear previous feedback while the new projectile is travelling.
+        this.spellEffect(e.target, this.save.commanderSkill, displayImpact);
+      } else displayImpact();
       // A fresh callback avoids re-scheduling the currently executing one-shot timer.
       this.scheduleOnce(() => advance(), (e.type === 'commander' ? .65 : .38) / this.speed);
     }; advance();
   }
-  private spellEffect(uid: string, skill: string) {
-    const target = this.unitNodes.get(uid); if (!target) return;
-    const fx = this.make('CommanderSpell', this.root, target.position.x, target.position.y + 160);
-    const g = fx.addComponent(Graphics);
-    if (skill === 'swordRain') {
-      g.strokeColor = this.color('#c6f8ff'); g.lineWidth = 5;
-      for (let i = -1; i <= 1; i++) { g.moveTo(i * 20 - 18, 70); g.lineTo(i * 20 + 10, 0); } g.stroke();
-    } else { g.fillColor = this.color('#ffae4e'); g.circle(0, 0, 29); g.fill(); g.fillColor = this.color('#fff0ad'); g.circle(-7, 6, 14); g.fill(); }
-    tween(fx).by(.24, { position: new Vec3(0, -160, 0) }).to(.12, { scale: new Vec3(1.8, .6, 1) }).call(() => fx.destroy()).start();
+  private spellEffect(uid: string, skill: string, onImpact: () => void = () => {}) {
+    const target = this.unitNodes.get(uid), token = this.generation;
+    let impacted = false;
+    const hit = () => {
+      if (impacted || token !== this.generation || !isValid(this.root, true) || (target && !isValid(target, true))) return;
+      impacted = true; onImpact();
+    };
+    if (!target || !isValid(target, true)) { hit(); return; }
+    const sword = skill === 'swordRain';
+    const frame = this.spellFrames.get(sword ? 'fx-sword' : 'fx-fireball');
+    if (!frame || !isValid(frame)) {
+      // Explicit loading fallback, not a geometric substitute represented as final art.
+      const note = this.shadowText(target, '法术图未就绪', 0, 76, 20, PAPER, 160).node;
+      this.scheduleOnce(() => { if (isValid(note, true)) note.destroy(); }, .36 / this.speed);
+      hit(); return;
+    }
+    // Authored static source sprites with travel/fade only, NOT skeletal or frame animation.
+    // Local origin is the sword tip / fireball core, so every trajectory ends on this event's target.
+    const offsets = sword ? [-22, 0, 22] : [0];
+    for (const offset of offsets) {
+      const impactX = target.position.x + offset, impactY = target.position.y + 22;
+      const dx = sword ? 115 : 240, dy = sword ? -150 : 0;
+      const fx = this.make('CommanderSpell', this.root, impactX - dx, impactY - dy, 1, 1);
+      const width = sword ? 145 : 220, height = width * frame.originalSize.height / frame.originalSize.width;
+      const anchorX = sword ? .89 : .84, anchorY = sword ? .89 : .53;
+      const art = this.make('SpellSource', fx, (.5 - anchorX) * width, (anchorY - .5) * height, width, height);
+      const sprite = art.addComponent(Sprite); sprite.spriteFrame = frame; sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+      art.getComponent(UITransform)!.setContentSize(width, height);
+      const opacity = fx.addComponent(UIOpacity); opacity.opacity = 235;
+      tween(fx).to(.24 / this.speed, { position: new Vec3(impactX, impactY, 0) }).call(hit)
+        .to(.12 / this.speed, { scale: new Vec3(1.12, 1.12, 1) })
+        .call(() => { if (isValid(fx, true)) fx.destroy(); }).start();
+      tween(opacity).delay(.24 / this.speed).to(.12 / this.speed, { opacity: 0 }).start();
+    }
   }
   private toast(message: string) {
     const n = this.box(this.root, 0, -530, 656, 80, '#5b3430', '#dba990');
