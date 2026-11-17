@@ -1,0 +1,21 @@
+# Cocos Creator generated and local state
+/library/
+/temp/
+/local/
+/build/
+/build-templates/.cache/
+/profiles/
+/node_modules/
+# Abandoned independent preview is not part of the Cocos project
+/preview/
+# Local credentials and OS/editor state
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
