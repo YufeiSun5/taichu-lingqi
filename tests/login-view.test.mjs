@@ -3,12 +3,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {stripTypeScriptTypes} from 'node:module';
+import {stageCover} from '../assets/scripts/presentation/BattleStage.ts';
+const screen = {windowSize:{width:720,height:1280}};
 let source=readFileSync(new URL('../assets/scripts/GameApp.ts',import.meta.url),'utf8');
 source=stripTypeScriptTypes(source.replace(/^@ccclass\([^\n]+\)\n/gm,'').replace(/@property /g,''),{mode:'strip'}).replace(/^import[^\n]+\n/gm,'').replace('export class GameApp','class GameApp');
 class Frame{isValid=true;refs=0;addRef(){this.refs++;}decRef(){this.refs--;}}
 class Sprite{static SizeMode={CUSTOM:0};}class Transform{}class Graphics{}class Color{constructor(r,g,b,a){Object.assign(this,{r,g,b,a});}}
 const resources={loads:[],load(path,type,callback){this.loads.push({path,callback});}};
-const GameApp=new Function('_decorator','Component','resources','SpriteFrame','Sprite','UITransform','Graphics','Color','isValid','director',source+'\nreturn GameApp;')({},class{},resources,class{},Sprite,Transform,Graphics,Color,n=>!!n&&n.isValid!==false,{loadScene(){}});
+const GameApp=new Function('_decorator','Component','resources','SpriteFrame','Sprite','UITransform','Graphics','Color','isValid','director','screen','stageCover',source+'\nreturn GameApp;')({},class{},resources,class{},Sprite,Transform,Graphics,Color,n=>!!n&&n.isValid!==false,{loadScene(){}},screen,stageCover);
 function setup(){resources.loads=[];const app=new GameApp();app.isValid=true;app.nodes=[];
  app.make=(name,parent,x,y,w=0,h=0)=>{const node={name,parent,x,y,w,h,isValid:true,children:[],components:new Map(),destroy(){this.isValid=false;for(const child of this.children)child.destroy();},setSiblingIndex(i){const old=parent.children.indexOf(this);parent.children.splice(old,1);parent.children.splice(i,0,this);},addComponent(type){const component=type===Graphics?{rects:[],rect(...args){this.rects.push({args,alpha:this.fillColor.a});},fill(){}}:{};this.components.set(type,component);return component;},getComponent(type){return type===Transform?{setContentSize:(w,h)=>{node.w=w;node.h=h;}}:this.components.get(type);}};if(parent)parent.children.push(node);app.nodes.push(node);return node;};
  app.root=app.make('Root',null,0,0,720,1280);app.clear=()=>{for(const n of app.root.children)n.destroy();app.root.children=[];};app.background=()=>{};app.color=()=>({});app.saveDescription=()=> '进度已保存在本机';

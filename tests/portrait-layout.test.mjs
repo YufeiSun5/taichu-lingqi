@@ -538,3 +538,23 @@ test('positive and negative event numbers have dark outlines without changing si
   app.replayBattle(result,app.generation);assert.ok(feedback);assert.equal(feedback.enableOutline,true);assert.equal(feedback.outlineWidth,2);assert.ok(feedback.outlineColor);assert.equal(feedback.isBold,true);assert.equal(feedback.node.fontSize,26);assert.equal(scheduled[0].delay,.38);
  }
 });
+
+test('login portrait and continuous veils extend outside safe content to actual tall and wide viewport edges',()=>{
+ for(const [width,height] of [[390,844],[720,1280],[1440,900]]){
+  screenMock.windowSize={width,height};const app=setup(),canvas=makeNode();app.backgroundLayer=makeNode(canvas);app.root.parent=canvas;app.root.addComponent(FakeMask);
+  app.login();const cover=stageCover(width,height),frame=Object.assign(new FakeFrame(),{originalSize:{width:1299,height:1199}});
+  resources.loads.find(r=>r.path==='art/commander/spriteFrame').callback(null,frame);
+  const art=app.nodes.find(n=>n.name==='LoginCommander');assert.equal(art.parent,app.backgroundLayer);assert.equal(art.y+art.h/2,340);assert.ok(art.y-art.h/2<=-cover.height/2-80+1e-8);assert.ok(Math.abs(art.w/art.h-1299/1199)<1e-10);
+  for(const page of ['login','game']){
+   if(page==='game')app.game();
+   for(const top of [true,false]){
+    const veil=app.nodes.filter(alive).find(n=>n.name===(top?'TopVignette':'BottomVignette'));assert.equal(veil.parent,app.backgroundLayer);
+    const rects=veil.getComponent(FakeGraphics).calls.filter(c=>c[0]==='rect');
+    const first=rects[0];assert.equal(first[1],-cover.width/2);assert.equal(first[3],cover.width);
+    assert.ok(Math.abs((top?first[2]+first[4]:first[2])-(top?cover.height/2:-cover.height/2))<1e-8);
+    for(let i=1;i<rects.length;i++)assert.ok(Math.abs(Math.abs(rects[i][2]-rects[i-1][2])-rects[i][4])<1e-8);
+   }
+  }
+ }
+ screenMock.windowSize={width:390,height:844};
+});

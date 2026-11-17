@@ -291,6 +291,8 @@ export class GameApp extends Component {
     resources.load(`art/${name}/spriteFrame`, SpriteFrame, (err, sf) => { if (!alive()) return; if (err) legacy(); else apply(sf, true, name); });
   }
   private edgeVeil(parent: Node, top: boolean, depth = 200) {
+    const windowSize = screen.windowSize, cover = stageCover(windowSize.width, windowSize.height);
+    depth += (cover.height - 1280) / 2;
     const n = this.make(top ? 'TopVignette' : 'BottomVignette', parent, 0, 0); const g = n.addComponent(Graphics);
     // One design-pixel sample, without overlapping alpha rectangles. The former
     // sixteen 20–27px bands and +1px overlaps produced visible steps and seams.
@@ -298,24 +300,26 @@ export class GameApp extends Component {
     for (let i = 0; i < samples; i++) {
       const opacity = Math.round(225 * Math.pow(1 - (i + .5) / samples, 2));
       g.fillColor = new Color(8, 24, 30, opacity);
-      g.rect(-360, top ? 640 - (i + 1) * strip : -640 + i * strip, 720, strip); g.fill();
+      g.rect(-cover.width / 2, top ? cover.height / 2 - (i + 1) * strip : -cover.height / 2 + i * strip, cover.width, strip); g.fill();
     }
   }
   private login() {
-    this.clear(); this.background(); this.edgeVeil(this.root, true, 240);
+    this.clear(); this.background(); this.edgeVeil(this.backgroundLayer || this.root, true, 240);
     const generation = this.displayGeneration;
     // This source is a waist-up portrait, not a full-body figure. Its opaque cut
     // edge belongs BELOW the viewport, rather than floating across the scenery.
-    const portrait = this.make('LoginCommander', this.root, -20, -190, 700, 1060);
+    const windowSize = screen.windowSize, cover = stageCover(windowSize.width, windowSize.height);
+    const portraitHeight = 340 + cover.height / 2 + 80;
+    const portrait = this.make('LoginCommander', this.backgroundLayer || this.root, -20, 340 - portraitHeight / 2, 700, portraitHeight);
     resources.load('art/commander/spriteFrame', SpriteFrame, (err, sf) => {
       if (!err && this.presentationAlive(portrait, generation)) {
         this.cachePresentationFrame('commander', sf);
-        const scale = 1060 / sf.originalSize.height;
+        const scale = portraitHeight / sf.originalSize.height;
         const sp = portrait.getComponent(Sprite) || portrait.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = sf;
         portrait.getComponent(UITransform)!.setContentSize(sf.originalSize.width * scale, sf.originalSize.height * scale);
       }
     });
-    this.edgeVeil(this.root, false, 380);
+    this.edgeVeil(this.backgroundLayer || this.root, false, 380);
     this.shadowText(this.root, '太 初 灵 契', 0, 490, 64, GOLD, 660);
     this.shadowText(this.root, '结契同道 · 以阵问天', 0, 390, 28, PAPER, 620);
     this.shadowText(this.root, '灵契仙使 · 邀君共赴山海', 0, -310, 24, PAPER, 620);
@@ -338,7 +342,7 @@ export class GameApp extends Component {
     this.clear(); const stage = getStage(this.save.stage);
     this.preloadSpells(stageBackdrop(stage.regionIndex), retryPresentation);
     this.background(stage.regionIndex);
-    this.edgeVeil(this.root, true, 160);
+    this.edgeVeil(this.backgroundLayer || this.root, true, 160);
     const top = this.ribbon(this.root, 0, 555, 672, 70);
     this.shadowText(top, '太初灵契', -205, 0, 26, GOLD, 230);
     this.shadowText(top, `第 ${stage.number} 关`, 20, 0, 24, PAPER, 200);
@@ -350,7 +354,7 @@ export class GameApp extends Component {
     if (battle.initialUnits.some(unit => unit.heroId === 'sword')) this.preloadSwordActions();
     // Back rows first, front rows last: lower ground figures overlap upper ones naturally.
     for (const u of [...battle.initialUnits].sort((a, b) => a.row - b.row || b.col - a.col)) this.drawUnit({ ...u, hp: u.maxHp });
-    this.edgeVeil(this.root, false, 280);
+    this.edgeVeil(this.backgroundLayer || this.root, false, 280);
     const empty = getUnlockedSlots(this.save.stage).filter(i => !this.save.formation[i]).length;
     const statusBand = this.ribbon(this.root, 0, -355, 660, 54);
     this.status = this.shadowText(statusBand, empty ? `已解锁 ${getUnlockedSlots(this.save.stage).length} 阵位 · ${empty} 个空位可上阵` : '战前布阵 · 点击角色查看详情', 0, 0, 22, PAPER, 620);
