@@ -54,3 +54,12 @@ P3 拆分：角色设定与职业/人物辨识→独立高精细透明资产→�
 P2 规则审查结果：公开 API 正常招募/布阵/升阶路径可到 13 关且模拟到 600 关，不是 GUI 证据；未证实经济软锁。近战默认普攻严格弱于无消耗职业技能，先修默认策略并给出解锁/失败可执行引导；长期难度与成长深度列后续，不把600关编号当成600关内容。review 获唯一写入 core/game.ts 与 tests/core.test.mjs、core/README.md 的默认策略最小修复权限，其他文件仍只读。
 
 正式角色名册与画面门槛见 [美术实施规格](docs/art-direction.md)。portrait-art 独占 battle-bamboo-portrait.png 与 meta，其他美术资源不并行覆盖。
+
+### PORTRAIT-02 战斗可读性（与 PORTRAIT-01 受测提交分离）
+portrait-ui 继续独占 GameApp.ts 及 tests/portrait-layout.test.mjs，可新增纯角色展示配置及 meta/test。修复人物图加载把阴影隐藏、全节点缩放死亡影响文字的问题；拆 shadow/art/HUD/FX、统一脚底与身体高度、事件驱动血条与行动/目标指示。此批是事件反馈，不冒充正式身体动画。Mac QA 仍测不可变 b18752c，发现问题先报告再集成新版本，不能在用户电脑打补丁。
+
+### TACTICS-02 每场灵力（实现中，尚未验收）
+为使普攻与职业技能存在真实取舍，采用单一每场灵力，不堆叠冷却/怒气：每单位初始/上限2，职业技能消耗2，普攻恢复1，无自然回复；敌我对称，指挥官不参与，Save/StrategyRule不变。只有有效技能执行扣费；不足继续下一策略，末尾普攻兜底。review 独占 core/game.ts、core/README.md、tests/core.test.mjs及新的能量测试；UI集成负责人对齐行动事件后才能发布，不把旧机制测试当新机制通过。
+
+真实引擎类型诊断：Mac 的 Creator 3.8.8 附带 TypeScript5.8.2 在生成 target ES2015 下缺少 includes/entries/fromEntries/flatMap 库声明；云端根 tsconfig 显式 ES2019/DOM lib 待实测复验。未凭 strip-types 测试称完整类型检查通过。
+用户观看当前画面后明确不接受其视觉品质。PORTRAIT-01 功能布局和现有资产均非美术验收；优先根据真实截图重做构图、比例、材质/UI及演出，不以几何控件齐全称完成。

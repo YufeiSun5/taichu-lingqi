@@ -1,4 +1,10 @@
 {
   "extends": "./temp/tsconfig.cocos.json",
-  "compilerOptions": { "strict": true }
+  "compilerOptions": {
+    "strict": true,
+    "lib": [
+      "ES2019",
+      "DOM"
+    ]
+  }
 }

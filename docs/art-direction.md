@@ -37,3 +37,7 @@
 6. 真实游戏截图与可重复交互验收，不用独立插画、静态排版或模型生成的假游戏截图替代。
 
 资源来源唯一记录位于 [art/README](../assets/resources/art/README.md)，当前实施状态见 [AI_BOARD](../AI_BOARD.md)，运行证据见 [independent-review](independent-review.md)。
+
+## 参考来源与使用边界
+
+参考官方 [战场/战斗系统展示](https://unicorn-overlord.com/system/stage-battle/) 和 [ATLUS 介绍](https://www.atlus.co.jp/news/22983/)，用于理解左右自动战斗的视觉层级和精致奇幻界面方向。参考资料不入游戏资源包，不作为可再分发素材，不照搬原作人物、徽章或 UI 图案。本项目的角色名册、仙侠服装、场景和界面必须独立设计；“参考品质”不是已经达到相同品质的断言。

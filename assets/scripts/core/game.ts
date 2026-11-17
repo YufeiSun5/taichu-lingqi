@@ -15,8 +15,11 @@ export const HEROES: Hero[] = [
 ];
 export interface Save {version:1;stage:number;coins:number;commanderLevel:number;commanderSkill:CommanderSkill;formation:(string|null)[];owned:string[];cleared:number[];strategies?:Record<string,StrategyRule[]>}
 export interface Stage {number:number;regionIndex:number;regionName:string;wave:number;enemyIds:string[]}
-export interface BattleUnit {uid:string;heroId:string;name:string;side:'ally'|'enemy';row:number;col:number;hp:number;maxHp:number;attack:number;defense:number;speed:number;role:Role}
-export interface BattleEvent {type:'start'|'commander'|'attack'|'heal'|'death'|'end';actor?:string;target?:string;amount?:number;skill?:string;round:number;text:string;hp?:number}
+export const ENERGY_MAX = 2;
+export const CLASS_SKILL_COST = 2;
+export const ATTACK_ENERGY_GAIN = 1;
+export interface BattleUnit {energy:number;uid:string;heroId:string;name:string;side:'ally'|'enemy';row:number;col:number;hp:number;maxHp:number;attack:number;defense:number;speed:number;role:Role}
+export interface BattleEvent {type:'start'|'commander'|'action'|'attack'|'heal'|'death'|'end';actionSkill?:StrategyRule['skill'];energyBefore?:number;energyAfter?:number;ruleIndex?:number;actor?:string;target?:string;amount?:number;skill?:string;round:number;text:string;hp?:number}
 export interface BattleResult {winner:'ally'|'enemy'|'draw';events:BattleEvent[];units:BattleUnit[];rounds:number;stage:number;initialUnits:BattleUnit[]}
 
 export type StrategyCondition = 'always'|'allyInjured'|'allyBelowHalf'|'enemyBelowHalf'|'firstRound';
@@ -76,7 +79,7 @@ export function validateSave(value:unknown):Save {
  if(s.strategies!==undefined){if(!s.strategies||typeof s.strategies!=='object'||Array.isArray(s.strategies))throw new Error('策略存档错误');for(const [id,rules] of Object.entries(s.strategies)){if(!s.owned.includes(id))throw new Error('策略队友错误');validateRules(rules);}}
  return copy(s);
 }
-function makeUnit(heroId:string,side:'ally'|'enemy',slot:number,scale:number):BattleUnit {const h=HEROES.find(x=>x.id===heroId)!;const maxHp=Math.round(h.maxHp*scale);return {uid:`${side}-${slot}`,heroId,name:h.name,side,row:Math.floor(slot/3),col:slot%3,hp:maxHp,maxHp,attack:Math.round(h.attack*scale),defense:Math.round(h.defense*scale),speed:h.speed,role:h.role};}
+function makeUnit(heroId:string,side:'ally'|'enemy',slot:number,scale:number):BattleUnit {const h=HEROES.find(x=>x.id===heroId)!;const maxHp=Math.round(h.maxHp*scale);return {energy:ENERGY_MAX,uid:`${side}-${slot}`,heroId,name:h.name,side,row:Math.floor(slot/3),col:slot%3,hp:maxHp,maxHp,attack:Math.round(h.attack*scale),defense:Math.round(h.defense*scale),speed:h.speed,role:h.role};}
 /** Produces a complete replay; UI must animate initialUnits using events, not mutate rules. */
 export function simulateBattle(input:Save):BattleResult {
  const save=validateSave(input), stage=getStage(save.stage), slots=getUnlockedSlots(save.stage);
@@ -102,8 +105,12 @@ export function simulateBattle(input:Save):BattleResult {
 
  const rules=getStrategy(actor.side==='ally'?save:{...save,strategies:undefined},actor.heroId);
  const matches=(r:StrategyRule)=>r.condition==='always'||(r.condition==='firstRound'&&round===1)||(r.condition==='allyInjured'&&friends.some(u=>u.hp<u.maxHp))||(r.condition==='allyBelowHalf'&&friends.some(u=>u.hp/u.maxHp<.5))||(r.condition==='enemyBelowHalf'&&foes.some(u=>u.hp/u.maxHp<.5));
- const rule=rules.find(r=>matches(r)&&!(actor.role==='healer'&&r.skill==='classSkill'&&!friends.some(u=>u.hp<u.maxHp))&&(r.condition!=='enemyBelowHalf'||(actor.role==='healer'&&r.skill==='classSkill')||foes.some(u=>u.hp/u.maxHp<.5&&((actor.role==='mage'||actor.role==='archer')||u.col===Math.min(...foes.map(f=>f.col))))))||{skill:'attack',condition:'always',target:'front'};
+ const ruleIndex=rules.findIndex(r=>(r.skill==='attack'||actor.energy>=CLASS_SKILL_COST)&&matches(r)&&!(actor.role==='healer'&&r.skill==='classSkill'&&!friends.some(u=>u.hp<u.maxHp))&&(r.condition!=='enemyBelowHalf'||(actor.role==='healer'&&r.skill==='classSkill')||foes.some(u=>u.hp/u.maxHp<.5&&((actor.role==='mage'||actor.role==='archer')||u.col===Math.min(...foes.map(f=>f.col))))));
+ const rule:StrategyRule=ruleIndex>=0?rules[ruleIndex]:{skill:'attack',condition:'always',target:'front'};
  const special=rule.skill==='classSkill';
+ const energyBefore=actor.energy;
+ actor.energy=special?actor.energy-CLASS_SKILL_COST:Math.min(ENERGY_MAX,actor.energy+ATTACK_ENERGY_GAIN);
+ events.push({type:'action',actor:actor.uid,round,actionSkill:rule.skill,energyBefore,energyAfter:actor.energy,ruleIndex,text:`${actor.name} · ${special?'职业技能':'普通攻击'} · 灵力 ${energyBefore}→${actor.energy}`});
  const order=(pool:BattleUnit[])=>[...pool].sort((a,b)=>rule.target==='weakest'?(a.hp/a.maxHp-b.hp/b.maxHp||a.uid.localeCompare(b.uid)):rule.target==='back'?(b.col-a.col||Math.abs(a.row-actor.row)-Math.abs(b.row-actor.row)||a.uid.localeCompare(b.uid)):(a.col-b.col||Math.abs(a.row-actor.row)-Math.abs(b.row-actor.row)||a.uid.localeCompare(b.uid)));
  if(actor.role==='healer'&&special){let pool=friends.filter(u=>u.hp<u.maxHp);if(rule.condition==='allyBelowHalf')pool=pool.filter(u=>u.hp/u.maxHp<.5);const injured=order(pool)[0];const amount=Math.min(injured.maxHp-injured.hp,Math.round(actor.attack*1.15));injured.hp+=amount;events.push({type:'heal',actor:actor.uid,target:injured.uid,amount,round,hp:injured.hp,skill:'回春诀',text:`回春诀 · ${injured.name} +${amount}`});continue;}
  // Near-range fighters must respect the first occupied column even with weak/back targeting.
