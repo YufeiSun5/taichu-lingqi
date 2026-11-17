@@ -1,6 +1,8 @@
-import { _decorator, Component, Node, Canvas, Camera, UITransform, Graphics, Color, Label, Layers, view, ResolutionPolicy, director, sys, resources, SpriteFrame, Sprite, tween, Vec3, Mask, LabelOutline, Button, BlockInputEvents, UIOpacity, isValid } from 'cc';
+import { _decorator, Component, Node, Canvas, Camera, UITransform, Graphics, Color, Label, Layers, view, ResolutionPolicy, director, sys, resources, SpriteFrame, Sprite, tween, Vec3, Mask, LabelOutline, Button, BlockInputEvents, UIOpacity, Texture2D, Rect, Size, Vec2, isValid } from 'cc';
 import { createSave, HEROES, getUnlockedSlots, getStage, simulateBattle, settleBattle, setFormation, recruit, upgradeCommander, selectCommanderSkill, commanderUpgradeCost, RECRUIT_COST, getStrategy, setStrategy, STRATEGY_SKILLS, STRATEGY_CONDITIONS, STRATEGY_TARGETS } from './core/game';
-import type { Save, BattleUnit, BattleResult, StrategyRule } from './core/game';
+import type { Save, BattleUnit, BattleResult, BattleEvent, StrategyRule } from './core/game';
+import { stageFocus, stageCell, stageCover, preparationBackdrop } from './presentation/BattleStage';
+import type { StageFocus } from './presentation/BattleStage';
 import { LocalSaveStore } from './infrastructure/LocalSaveStore';
 const { ccclass, property } = _decorator;
 const INK = '#102a31', GOLD = '#d6b979', PAPER = '#f4e7c8';
@@ -28,21 +30,75 @@ export class GameApp extends Component {
   private feedbackLabels = new Map<string, Label>();
   private unitEnergy = new Map<string, { value: number; graphic: Graphics }>();
   private unitHealth = new Map<string, { hp: number; maxHp: number; dead: boolean; side: string }>();
+  private stageMode = false;
+  private stageLayer: Node | null = null;
+  private stageUnits: BattleUnit[] = [];
+  private stagePlacements = new Map<string, StageFocus>();
+  private stageNames: Node | null = null;
+  private stageLabels = new Map<string, Label>();
+  private miniPortraits = new Map<string, Node>();
+  private miniMarkers = new Map<string, Graphics>();
+  private stageCommander: Node | null = null;
   private status!: Label;
   private generation = 0;
   private resultAwarded = false;
+  private swordFrames: SpriteFrame[] = [];
+  private swordTexture: Texture2D | null = null;
+  private unitActors = new Map<string, { heroId: string; mirror: number; scale: number; pose?: number }>();
+  private preloadSwordActions() {
+    resources.load('art/fighter-sword-actions/texture', Texture2D, (err, texture) => {
+      if (err || !texture || !isValid(texture) || !isValid(this, true) || !isValid(this.node, true)) return;
+      if (texture.width !== 1254 || texture.height !== 1254) return;
+      texture.addRef(); this.swordTexture?.decRef(); this.swordTexture = texture;
+      for (const frame of this.swordFrames) frame.decRef();
+      this.swordFrames = [0, 1, 2, 3].map(i => {
+        const frame = new SpriteFrame();
+        frame.reset({ texture, rect: new Rect((i % 2) * 627, Math.floor(i / 2) * 627, 627, 627), originalSize: new Size(627, 627), offset: new Vec2(0, 0), isRotate: false });
+        frame.packable = false; frame.addRef(); return frame;
+      });
+      // Never interrupt a running action or restore a dead unit on a late load.
+      if (!this.running) for (const uid of this.unitActors.keys()) this.swordPose(uid, 0);
+    });
+  }
+  private swordPose(uid: string, pose: number) {
+    const actor = this.unitActors.get(uid), portrait = this.unitPortraits.get(uid), frame = this.swordFrames[pose];
+    if (actor?.heroId !== 'sword' || !portrait || !isValid(portrait, true) || this.unitHealth.get(uid)?.dead || !frame || !isValid(frame)) return false;
+    const feet = [[275, 562], [311.5, 562], [268, 545], [276, 546]][pose];
+    const sprite = portrait.getComponent(Sprite) || portrait.addComponent(Sprite);
+    sprite.sizeMode = Sprite.SizeMode.CUSTOM; sprite.trim = false; sprite.spriteFrame = frame;
+    portrait.getComponent(UITransform)!.setContentSize(627 * actor.scale, 627 * actor.scale);
+    portrait.setPosition((313.5 - feet[0]) * actor.scale * actor.mirror, -40 + (feet[1] - 313.5) * actor.scale);
+    portrait.setScale(actor.mirror, 1, 1); actor.pose = pose; return true;
+  }
+  private playSwordAction(uid: string, impact: () => void) {
+    if (!this.swordPose(uid, 1)) return false;
+    const token = this.generation, portrait = this.unitPortraits.get(uid)!;
+    const valid = () => token === this.generation && isValid(this, true) && isValid(portrait, true) && !this.unitHealth.get(uid)?.dead;
+    this.scheduleOnce(() => { if (valid()) { this.swordPose(uid, 2); impact(); } }, .14 / this.speed);
+    this.scheduleOnce(() => { if (valid()) this.swordPose(uid, 3); }, .25 / this.speed);
+    this.scheduleOnce(() => { if (valid()) this.swordPose(uid, 0); }, .34 / this.speed);
+    return true;
+  }
+  private unitArtReady = new Set<string>();
+  private unitArtFailed = new Set<string>();
+  private presentationFailures = new Set<string>();
   private spellFrames = new Map<string, SpriteFrame>();
+  private cachePresentationFrame(name: string, frame: SpriteFrame) {
+    if (this.spellFrames.get(name) === frame) return;
+    frame.addRef(); this.spellFrames.get(name)?.decRef(); this.spellFrames.set(name, frame);
+  }
   private preloadSpells() {
-    for (const name of ['fx-sword', 'fx-fireball']) resources.load(`art/${name}/spriteFrame`, SpriteFrame, (err, frame) => {
+    for (const name of ['fx-sword', 'fx-fireball', 'battle-bamboo-stage', 'commander', 'ui-skill-banner']) resources.load(`art/${name}/spriteFrame`, SpriteFrame, (err, frame) => {
+      if (err) this.presentationFailures.add(name);
       if (!err && frame && isValid(frame) && isValid(this, true) && isValid(this.node, true)) {
-        frame.addRef();
-        this.spellFrames.get(name)?.decRef();
-        this.spellFrames.set(name, frame);
+        this.presentationFailures.delete(name);
+        this.cachePresentationFrame(name, frame);
       }
     });
   }
   onLoad() {
     this.preloadSpells();
+    this.preloadSwordActions();
     view.setDesignResolutionSize(720, 1280, ResolutionPolicy.SHOW_ALL);
     this.root = this.make('Canvas', this.node, 0, 0, 720, 1280);
     const canvas = this.root.addComponent(Canvas);
@@ -61,6 +117,8 @@ export class GameApp extends Component {
     this.generation++; this.unscheduleAllCallbacks();
     for (const frame of this.spellFrames.values()) frame.decRef();
     this.spellFrames.clear();
+    for (const frame of this.swordFrames) frame.decRef();
+    this.swordFrames = []; this.swordTexture?.decRef(); this.swordTexture = null;
   }
   private renderEntry() { this.startInGame ? this.game() : this.login(); }
   private retainSession() { GameApp.session = { store: this.store, save: this.save, state: this.saveState, error: this.lastSaveError }; }
@@ -161,7 +219,7 @@ export class GameApp extends Component {
     const button = n.addComponent(Button); button.transition = Button.Transition.NONE; button.interactable = active;
     n.on(Button.EventType.CLICK, () => { if (active && !this.running && isValid(n, true)) action(); }); return n;
   }
-  private clear() { for (const child of [...this.root.children]) child.destroy(); this.root.removeAllChildren(); this.modal = null; this.saveStatusLabel = null; this.unitNodes.clear(); this.hpLabels.clear(); this.hpBars.clear(); this.unitPortraits.clear(); this.unitMarkers.clear(); this.feedbackLabels.clear(); this.unitHealth.clear(); this.unitEnergy.clear(); }
+  private clear() { this.unitArtReady.clear(); this.unitArtFailed.clear(); const clip = this.root.getComponent(Mask); if (clip) clip.enabled = true; this.stageMode = false; this.stageLayer = null; this.stageUnits = []; this.stagePlacements.clear(); this.stageLabels.clear(); this.miniPortraits.clear(); this.miniMarkers.clear(); this.stageNames = null; this.stageCommander = null; this.generation++; this.unitActors.clear(); for (const child of [...this.root.children]) child.destroy(); this.root.removeAllChildren(); this.modal = null; this.saveStatusLabel = null; this.unitNodes.clear(); this.hpLabels.clear(); this.hpBars.clear(); this.unitPortraits.clear(); this.unitMarkers.clear(); this.feedbackLabels.clear(); this.unitHealth.clear(); this.unitEnergy.clear(); }
   private background(region = 0) {
     this.box(this.root, 0, 0, 720, 1280, '#142c32', '#142c32');
     const art = this.make('BackgroundArt', this.root, 0, 0, 720, 1280);
@@ -176,8 +234,7 @@ export class GameApp extends Component {
       art.setPosition(0, portrait ? 0 : -640 + sf.originalSize.height * scale / 2);
     };
     const legacy = () => resources.load(`art/${region % 2 ? 'battle-temple' : 'battle-bamboo'}/spriteFrame`, SpriteFrame, (err, sf) => { if (!err) apply(sf, false); });
-    if (region % 2) legacy();
-    else resources.load('art/battle-bamboo-portrait/spriteFrame', SpriteFrame, (err, sf) => { if (err) legacy(); else apply(sf, true); });
+    resources.load(`art/${preparationBackdrop(region)}/spriteFrame`, SpriteFrame, (err, sf) => { if (err) legacy(); else apply(sf, true); });
   }
   private edgeVeil(parent: Node, top: boolean, depth = 200) {
     const n = this.make(top ? 'TopVignette' : 'BottomVignette', parent, 0, 0); const g = n.addComponent(Graphics);
@@ -192,7 +249,7 @@ export class GameApp extends Component {
     resources.load('art/commander/spriteFrame', SpriteFrame, (err, sf) => {
       if (!err && isValid(portrait, true)) {
         const scale = Math.min(760 / sf.originalSize.width, 760 / sf.originalSize.height);
-        const sp = portrait.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = sf;
+        const sp = portrait.getComponent(Sprite) || portrait.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = sf;
         portrait.getComponent(UITransform)!.setContentSize(sf.originalSize.width * scale, sf.originalSize.height * scale);
       }
     });
@@ -232,6 +289,140 @@ export class GameApp extends Component {
     this.button(this.root, '返回', 240, -520, 160, () => director.loadScene('Login'));
     this.saveStatusLabel = this.shadowText(this.root, this.saveDescription(), 0, -585, 20, GOLD, 640);
   }
+  private enterBattleStage(units: BattleUnit[]) {
+    this.stageMode = true; this.stageUnits = units;
+    const clip = this.root.getComponent(Mask); if (clip) clip.enabled = false;
+    const screen = view.getFrameSize(), cover = stageCover(screen.width, screen.height);
+    const previousBackdrop = this.root.children.find(child => child.name === 'BackgroundArt');
+    for (const child of [...this.root.children]) child.active = child === previousBackdrop;
+    const layer = this.make('BattleStage', this.root, 0, 0, 720, 1280); this.stageLayer = layer;
+    const backdrop = this.make('StageBackdrop', layer, 0, 0, 720, 1280);
+    const loading = this.shadowText(layer, '舞台加载中…', 0, 300, 24, PAPER, 400);
+    const applyBackground = (sf: SpriteFrame, final: boolean) => {
+      if (!isValid(backdrop, true)) return;
+      loading.node.destroy(); if (previousBackdrop && isValid(previousBackdrop, true)) previousBackdrop.active = false;
+      const sprite = backdrop.addComponent(Sprite); sprite.spriteFrame = sf; sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+      const scale = Math.max(cover.width / sf.originalSize.width, (final ? cover.height : Math.max(1664, cover.height)) / sf.originalSize.height);
+      backdrop.getComponent(UITransform)!.setContentSize(sf.originalSize.width * scale, sf.originalSize.height * scale);
+      backdrop.setPosition(0, final ? 0 : 180);
+    };
+    const cachedStage = this.spellFrames.get('battle-bamboo-stage');
+    if (cachedStage && isValid(cachedStage)) applyBackground(cachedStage, true);
+    else resources.load('art/battle-bamboo-stage/spriteFrame', SpriteFrame, (error, frame) => {
+      if (!error) applyBackground(frame, true);
+      else resources.load('art/battle-bamboo/spriteFrame', SpriteFrame, (err, fallback) => { if (!err) applyBackground(fallback, false); });
+    });
+    // No full-screen dark slabs or stepped vignette bands in the performance view.
+    const figures = this.make('StageFigures', layer, 0, 0);
+    for (const unit of units) {
+      const figure = this.unitNodes.get(unit.uid); if (!figure) continue;
+      figure.parent = figures; figure.active = false;
+      figure.children.find(child => child.name === 'GroundShadow')?.setScale(2.2, 2.2, 1);
+      figure.children.find(child => child.name === 'EventMarker')?.setScale(1.7, 1.7, 1);
+      const hud = figure.children.find(child => child.name === 'UnitHUD');
+      const cell = stageCell(unit), tile = this.make('FormationCell', layer, cell.x, cell.y, 94, 56);
+      const pedestal = this.make('FormationPedestal', tile, 0, -8, 94, 34).addComponent(Graphics);
+      pedestal.fillColor = new Color(16, 42, 49, 215); pedestal.strokeColor = this.color('#9c8657'); pedestal.lineWidth = 1;
+      pedestal.moveTo(-45, 0); pedestal.lineTo(0, 16); pedestal.lineTo(45, 0); pedestal.lineTo(0, -16); pedestal.close(); pedestal.fill(); pedestal.stroke();
+      const marker = tile.addComponent(Graphics); this.miniMarkers.set(unit.uid, marker);
+      if (hud) {
+        hud.parent = tile; hud.setPosition(0, 0);
+        for (const child of hud.children) child.active = false;
+        const bar = hud.children.find(child => child.name === 'HealthBar'); if (bar) { bar.active = true; bar.setPosition(0, -17); }
+        const pips = hud.children.find(child => child.name === 'EnergyPips'); if (pips) { pips.active = true; pips.setPosition(0, -28); }
+      }
+      const mini = this.make('FormationPortrait', tile, 0, 9, 44, 46); this.miniPortraits.set(unit.uid, mini);
+      const applyMini = (frame: SpriteFrame) => {
+        if (!isValid(mini, true)) return;
+        const sprite = mini.addComponent(Sprite); sprite.spriteFrame = frame; sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+        const scale = Math.min(48 / frame.originalSize.width, 46 / frame.originalSize.height);
+        mini.getComponent(UITransform)!.setContentSize(frame.originalSize.width * scale, frame.originalSize.height * scale);
+        if (this.unitHealth.get(unit.uid)?.dead) sprite.color = new Color(120, 120, 120, 85);
+      };
+      const cachedMini = this.spellFrames.get(this.fighterArt(unit.role, unit.heroId).name);
+      if (cachedMini && isValid(cachedMini)) applyMini(cachedMini);
+    }
+    const title = this.ribbon(layer, 0, 550, 460, 64);
+    const stage = getStage(this.save.stage);
+    this.shadowText(title, `${stage.regionName} · 第 ${stage.number} 关`, 0, 0, 28, PAPER, 430);
+    this.shadowText(layer, '我 方 灵 阵', -170, -365, 24, GOLD, 280);
+    this.shadowText(layer, '敌 方 灵 阵', 170, -365, 24, '#e2b6a0', 280);
+    const skill = this.make('SkillBanner', layer, 0, -305, 620, 90);
+    const fallbackBanner = this.ribbon(skill, 0, 0, 620, 60);
+    const applyBanner = (frame: SpriteFrame) => {
+      if (!isValid(skill, true)) return;
+      fallbackBanner.active = false;
+      const sprite = skill.addComponent(Sprite); sprite.spriteFrame = frame; sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+      // Source alpha bounds are 2118×340 inside the 2172×724 transparent canvas.
+      const scale = 620 / 2118;
+      skill.getComponent(UITransform)!.setContentSize(frame.originalSize.width * scale, frame.originalSize.height * scale);
+    };
+    const cachedBanner = this.spellFrames.get('ui-skill-banner');
+    if (cachedBanner && isValid(cachedBanner)) applyBanner(cachedBanner);
+    this.status = this.shadowText(skill, '灵契交锋', 0, 0, 26, PAPER, 420);
+    this.shadowText(layer, `演出中 · 速度 ×${this.speed}`, 0, -580, 22, '#d8d9c8', 620);
+    this.stageNames = this.make('StageNames', layer, 0, 0);
+    this.stageCommander = this.make('StageCommander', layer, -170, -210, 420, 500); this.stageCommander.active = false;
+    const commanderNode = this.stageCommander;
+    const applyCommander = (frame: SpriteFrame) => {
+      const node = commanderNode;
+      if (!node || !isValid(node, true)) return;
+      const sprite = node.addComponent(Sprite); sprite.spriteFrame = frame; sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+      const scale = Math.min(420 / frame.originalSize.width, 500 / frame.originalSize.height);
+      node.getComponent(UITransform)!.setContentSize(frame.originalSize.width * scale, frame.originalSize.height * scale);
+      node.setPosition(-170, 20);
+    };
+    const cachedCommander = this.spellFrames.get('commander');
+    if (cachedCommander && isValid(cachedCommander)) applyCommander(cachedCommander);
+    const ally = units.find(unit => unit.side === 'ally'), enemy = units.find(unit => unit.side === 'enemy');
+    this.focusBattle(ally?.uid, enemy ? [enemy.uid] : []);
+  }
+  private applyStageArt(uid: string) {
+    const placement = this.stagePlacements.get(uid), unit = this.stageUnits.find(unit => unit.uid === uid);
+    const portrait = this.unitPortraits.get(uid), actor = this.unitActors.get(uid);
+    if (!placement || !unit || !portrait || !actor) return;
+    actor.scale = placement.bodyHeight / 428;
+    if (actor.pose !== undefined) {
+      if (!this.unitHealth.get(uid)?.dead) this.swordPose(uid, actor.pose);
+      return;
+    }
+    const frame = portrait.getComponent(Sprite)?.spriteFrame; if (!frame) return;
+    const art = this.fighterArt(unit.role, unit.heroId), scale = placement.bodyHeight / (art.groundY - art.bodyTop);
+    portrait.getComponent(UITransform)!.setContentSize(frame.originalSize.width * scale, frame.originalSize.height * scale);
+    portrait.setPosition((frame.originalSize.width / 2 - art.groundX) * scale * actor.mirror, -40 + (art.groundY - frame.originalSize.height / 2) * scale);
+  }
+  private focusBattle(actor?: string, targets: string[] = [], commander = false) {
+    if (!this.stageMode) return;
+    this.stagePlacements = new Map(stageFocus(this.stageUnits, actor, targets).map(item => [item.uid, item]));
+    for (const [uid, node] of this.unitNodes) {
+      const placement = this.stagePlacements.get(uid); node.active = !!placement;
+      if (placement) { node.setPosition(placement.x, placement.footY + 40); this.applyStageArt(uid); }
+    }
+    [...this.stagePlacements.values()].sort((a, b) => b.footY - a.footY).forEach((placement, index) => this.unitNodes.get(placement.uid)?.setSiblingIndex(index));
+    if (this.stageCommander) this.stageCommander.active = commander;
+    this.stageLabels.clear();
+    if (this.stageNames) { for (const child of [...this.stageNames.children]) child.destroy(); this.stageNames.removeAllChildren(); }
+    const nameRows = new Map<string, number[]>();
+    for (const placement of this.stagePlacements.values()) {
+      const unit = this.stageUnits.find(unit => unit.uid === placement.uid)!;
+      let nameY = placement.footY + placement.bodyHeight + (unit.heroId === 'sword' ? 120 : 65);
+      const occupied = nameRows.get(unit.side) || [];
+      while (occupied.some(y => Math.abs(y - nameY) < 75)) nameY += 75;
+      occupied.push(nameY); nameRows.set(unit.side, occupied);
+      const label = this.shadowText(this.stageNames!, '', unit.side === 'ally' ? -175 : 175, nameY, 26, PAPER, 300); this.stageLabels.set(unit.uid, label); this.updateStageLabel(unit.uid);
+    }
+    for (const [uid, marker] of this.miniMarkers) {
+      marker.clear();
+      if (uid === actor || targets.includes(uid)) {
+        marker.strokeColor = this.color(uid === actor ? GOLD : '#f5c2a3'); marker.lineWidth = 2;
+        marker.roundRect(-46, -30, 92, 60, 7); marker.stroke();
+      }
+    }
+  }
+  private updateStageLabel(uid: string) {
+    const label = this.stageLabels.get(uid), unit = this.stageUnits.find(unit => unit.uid === uid), health = this.unitHealth.get(uid);
+    if (label && unit && health) label.string = `${unit.name}  ${health.dead ? '已退场' : `${health.hp}/${health.maxHp}`}  ${this.unitEnergy.get(uid)?.value ?? 0}灵`;
+  }
   private battlePlacement(u: BattleUnit) {
     const slots = getUnlockedSlots(this.save.stage);
     const columns = Math.max(...slots.map(i => i % 3)) + 1;
@@ -258,6 +449,7 @@ export class GameApp extends Component {
   }
   private drawUnit(u: BattleUnit) {
     const layout = this.battlePlacement(u);
+    this.unitActors.set(u.uid, { heroId: u.heroId, mirror: u.side === 'enemy' ? -1 : 1, scale: layout.bodyHeight / (562 - 134) });
     const n = this.make(u.uid, this.root, layout.x, layout.y, layout.width, layout.bodyHeight + 100); this.unitNodes.set(u.uid, n);
     n.on(Node.EventType.TOUCH_END, () => { if (!this.running) this.unitDetail(u); });
     this.unitHealth.set(u.uid, { hp: u.hp, maxHp: u.maxHp, dead: u.hp <= 0, side: u.side });
@@ -273,17 +465,21 @@ export class GameApp extends Component {
     const loading = this.label(n, '载入角色…', 0, 15, 18, GOLD, 96);
     resources.load(`art/${art.name}/spriteFrame`, SpriteFrame, (err, sf) => {
       if (!isValid(portrait, true)) return;
-      if (err) { loading.string = '角色图未载入'; return; }
+      if (err) { this.unitArtFailed.add(u.uid); loading.string = '角色图未载入'; return; }
+      this.cachePresentationFrame(art.name, sf);
+      this.unitArtReady.add(u.uid); this.unitArtFailed.delete(u.uid);
       loading.node.destroy();
+      if (this.unitActors.get(u.uid)?.pose !== undefined || this.swordPose(u.uid, 0)) return;
       const scale = layout.bodyHeight / (art.groundY - art.bodyTop);
       const mirror = u.side === 'enemy' ? -1 : 1;
       // Mirror the anchor offset together with the image so both feet stay grounded.
       portrait.setPosition((sf.originalSize.width / 2 - art.groundX) * scale * mirror,
         -40 + (art.groundY - sf.originalSize.height / 2) * scale);
-      const sp = portrait.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = sf;
+      const sp = portrait.getComponent(Sprite) || portrait.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = sf;
       portrait.getComponent(UITransform)!.setContentSize(sf.originalSize.width * scale, sf.originalSize.height * scale);
       portrait.setScale(mirror, 1, 1);
       if (this.unitHealth.get(u.uid)?.dead) sp.color = new Color(140, 145, 150, 90);
+      if (this.stageMode) this.applyStageArt(u.uid);
     });
     const hud = this.make('UnitHUD', n, 0, 0);
     const plaque = this.ribbon(hud, 0, -64, layout.width, 34);
@@ -307,7 +503,9 @@ export class GameApp extends Component {
       g.rect(-41, -3, 82 * state.hp / state.maxHp, 6); g.fill();
       g.strokeColor = this.color('#d6b979'); g.lineWidth = 1; g.rect(-43, -5, 86, 10); g.stroke();
     }
+    this.updateStageLabel(uid);
     if (state.dead) {
+      const mini = this.miniPortraits.get(uid)?.getComponent(Sprite); if (mini) mini.color = new Color(120, 120, 120, 85);
       this.unitMarkers.get(uid)?.clear();
       this.unitEnergy.get(uid)?.graphic.clear();
       const feedback = this.feedbackLabels.get(uid); if (feedback) feedback.string = '';
@@ -317,15 +515,15 @@ export class GameApp extends Component {
   }
   private updateEnergy(uid: string, value: number) {
     const entry = this.unitEnergy.get(uid); if (!entry || !Number.isInteger(value) || value < 0 || value > 2) return;
-    entry.value = value; const g = entry.graphic; g.clear();
+    entry.value = value; this.updateStageLabel(uid); const g = entry.graphic; g.clear();
     if (this.unitHealth.get(uid)?.dead) return;
     for (let i = 0; i < 2; i++) {
       g.fillColor = this.color(i < value ? '#f3d892' : '#29414a');
       g.strokeColor = this.color('#d6b979'); g.lineWidth = 1; g.circle(i ? 9 : -9, 0, 5); g.fill(); g.stroke();
     }
   }
-  private eventFeedback(actor?: string, target?: string, healing = false, actionSkill?: string) {
-    for (const g of this.unitMarkers.values()) g.clear();
+  private eventFeedback(actor?: string, target?: string, healing = false, actionSkill?: string, keepTargets = false) {
+    if (!keepTargets) for (const g of this.unitMarkers.values()) g.clear();
     for (const label of this.feedbackLabels.values()) label.string = '';
     const mark = (uid: string | undefined, text: string, color: string) => {
       if (!uid || this.unitHealth.get(uid)?.dead) return;
@@ -457,7 +655,7 @@ export class GameApp extends Component {
     const portrait = this.make('CommanderPortrait', p, 0, 230, 470, 430);
     resources.load('art/commander/spriteFrame', SpriteFrame, (err, sf) => {
       if (!err && isValid(portrait, true)) {
-        const sp = portrait.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = sf;
+        const sp = portrait.getComponent(Sprite) || portrait.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = sf;
         const scale = Math.min(470 / sf.originalSize.width, 430 / sf.originalSize.height);
         portrait.getComponent(UITransform)!.setContentSize(sf.originalSize.width * scale, sf.originalSize.height * scale);
       }
@@ -474,7 +672,38 @@ export class GameApp extends Component {
     this.running = true; this.resultAwarded = false; const token = ++this.generation;
     let result: BattleResult;
     try { result = simulateBattle(this.save); } catch (e) { this.running = false; this.toast(String(e)); return; }
+    if (this.unitNodes.size) this.awaitBattleAssets(result.initialUnits, token, () => this.replayBattle(result, token));
+    else this.replayBattle(result, token);
+  }
+  private awaitBattleAssets(units: BattleUnit[], token: number, ready: () => void) {
+    const required = ['battle-bamboo-stage', 'commander', 'ui-skill-banner', this.save.commanderSkill === 'swordRain' ? 'fx-sword' : 'fx-fireball'];
+    let elapsed = 0, completed = false;
+    const check = () => {
+      if (completed || token !== this.generation || !isValid(this, true) || !isValid(this.root, true)) return;
+      const artReady = units.every(unit => this.unitArtReady.has(unit.uid) && isValid(this.spellFrames.get(this.fighterArt(unit.role, unit.heroId).name)));
+      const presentationReady = required.every(name => { const frame = this.spellFrames.get(name); return !!frame && isValid(frame); });
+      if (artReady && presentationReady) { completed = true; ready(); return; }
+      const failed = units.some(unit => this.unitArtFailed.has(unit.uid)) || required.some(name => this.presentationFailures.has(name));
+      if (failed || elapsed >= 10) {
+        completed = true; this.running = false;
+        const panel = this.open('战斗素材加载未完成'); if (!panel) return;
+        this.label(panel, '本场尚未开始，没有结算或扣除资源。请检查连接后重试。', 0, 90, 26, PAPER, 600);
+        this.button(panel, '重试加载并开始', 0, -70, 520, () => {
+          this.presentationFailures.clear(); this.preloadSpells(); this.game(); this.fight();
+        });
+        this.button(panel, '返回战前准备', 0, -180, 520, () => this.game());
+        return;
+      }
+      this.status.string = '正在准备战斗素材… 尚未开始演出';
+      elapsed += .1; this.scheduleOnce(() => check(), .1);
+    };
+    check();
+  }
+  private replayBattle(result: BattleResult, token: number) {
+    if (token !== this.generation || !isValid(this, true)) return;
+    if (this.unitNodes.size) this.enterBattleStage(result.initialUnits);
     let index = 0;
+    let commanderFocused = false;
     let pendingAction: { actor: string; energyAfter: number; actionSkill?: string } | null = null;
     const finishAction = () => {
       if (pendingAction) this.updateEnergy(pendingAction.actor, pendingAction.energyAfter);
@@ -483,6 +712,29 @@ export class GameApp extends Component {
     // Block navigation while replay is running: results must only be settled once.
     const blocker = this.make('BattleInputGuard', this.root, 0, -475, 720, 300);
     blocker.on(Node.EventType.TOUCH_END, (e: any) => e.propagationStopped = true);
+    const impactFor = (e: BattleEvent, grouped = false) => {
+      let displayed = false;
+      const displayImpact = () => {
+        if (displayed || !this.isValid || token !== this.generation || !isValid(this.root, true)) return;
+        const target = e.target ? this.unitNodes.get(e.target) : undefined;
+        if (target && !isValid(target, true)) return;
+        displayed = true;
+        this.status.string = e.text;
+        this.eventFeedback(e.actor || pendingAction?.actor, e.target, e.type === 'heal', pendingAction?.actionSkill, grouped);
+        if (e.target) {
+          const target = this.unitNodes.get(e.target);
+          if (typeof e.hp === 'number') this.updateHealth(e.target, e.hp, e.type === 'death');
+          else if (e.type === 'death') this.updateHealth(e.target, 0, true);
+          const feedbackTarget = this.stageMode && !this.stagePlacements.has(e.target) ? this.miniPortraits.get(e.target) : target;
+          if (feedbackTarget && e.amount) {
+            // Event feedback only: this is not a character's authored body animation.
+            const v = this.label(feedbackTarget, `${e.type === 'heal' ? '+' : '-'}${e.amount}`, 0, 58, 26, e.type === 'heal' ? '#a8f0ad' : '#ffe2a2', 110);
+            tween(v.node).by((grouped ? .2 : .3) / this.speed, { position: new Vec3(0, 24, 0) }).call(() => v.node.destroy()).start();
+          }
+        }
+      };
+      return displayImpact;
+    };
     const advance = () => {
       if (!this.isValid || token !== this.generation) return;
       if (index >= result.events.length) {
@@ -504,30 +756,30 @@ export class GameApp extends Component {
       if (e.type === 'action') {
         // action is a descriptor, not an extra timed frame. Previous effects have finished.
         finishAction();
+        const targets = result.events.slice(index, result.events.findIndex((next, i) => i >= index && (next.type === 'action' || next.type === 'end'))).flatMap(effect => effect.target ? [effect.target] : []);
+        this.focusBattle(e.actor, targets);
         if (e.actor && typeof e.energyAfter === 'number') pendingAction = { actor: e.actor, energyAfter: e.energyAfter, actionSkill: e.actionSkill };
+        if (e.actor && this.unitActors.get(e.actor)?.heroId === 'sword' && this.swordFrames.length === 4) {
+          let last = index;
+          while (last < result.events.length && ['attack', 'heal', 'death'].includes(result.events[last].type)) last++;
+          const effects = result.events.slice(index, last), impacts = effects.map(effect => impactFor(effect, true));
+          if (effects.length && this.playSwordAction(e.actor, () => { for (const impact of impacts) impact(); })) {
+            index = last;
+            this.status.string = `${this.unitHealth.get(e.actor)?.side === 'ally' ? '凌霄' : '敌方凌霄'} · 起剑`;
+            this.eventFeedback(e.actor);
+            // The pose sequence fits INSIDE the existing effect budget, never adds an action delay.
+            this.scheduleOnce(() => advance(), effects.length * .38 / this.speed);
+            return;
+          }
+        }
         advance(); return;
+      }
+      if (e.type === 'commander' && !commanderFocused) {
+        commanderFocused = true; this.focusBattle(undefined, result.events.filter(event => event.type === 'commander').flatMap(event => event.target ? [event.target] : []), true);
       }
       if (e.type === 'end') finishAction();
       this.status.string = e.type === 'commander' ? `${e.skill || '指挥官神通'} · 施法` : e.text;
-      let displayed = false;
-      const displayImpact = () => {
-        if (displayed || !this.isValid || token !== this.generation || !isValid(this.root, true)) return;
-        const target = e.target ? this.unitNodes.get(e.target) : undefined;
-        if (target && !isValid(target, true)) return;
-        displayed = true;
-        this.status.string = e.text;
-        this.eventFeedback(e.actor || pendingAction?.actor, e.target, e.type === 'heal', pendingAction?.actionSkill);
-        if (e.target) {
-          const target = this.unitNodes.get(e.target);
-          if (typeof e.hp === 'number') this.updateHealth(e.target, e.hp, e.type === 'death');
-          else if (e.type === 'death') this.updateHealth(e.target, 0, true);
-          if (target && e.amount) {
-            // Event feedback only: this is not a character's authored body animation.
-            const v = this.label(target, `${e.type === 'heal' ? '+' : '-'}${e.amount}`, 0, 58, 26, e.type === 'heal' ? '#a8f0ad' : '#ffe2a2', 110);
-            tween(v.node).by(.3 / this.speed, { position: new Vec3(0, 24, 0) }).call(() => v.node.destroy()).start();
-          }
-        }
-      };
+      const displayImpact = impactFor(e);
       if (e.type === 'commander' && e.target) {
         this.eventFeedback(); // Clear previous feedback while the new projectile is travelling.
         this.spellEffect(e.target, this.save.commanderSkill, displayImpact);
@@ -535,6 +787,15 @@ export class GameApp extends Component {
       // A fresh callback avoids re-scheduling the currently executing one-shot timer.
       this.scheduleOnce(() => advance(), (e.type === 'commander' ? .65 : .38) / this.speed);
     }; advance();
+  }
+  private spellImpactPoint(uid: string) {
+    const placement = this.stagePlacements.get(uid);
+    const miniature = this.stageMode && !placement;
+    const node = miniature ? this.miniPortraits.get(uid) : this.unitNodes.get(uid);
+    if (!node || !isValid(node, true)) return null;
+    const point = this.root.getComponent(UITransform)!.convertToNodeSpaceAR(node.worldPosition);
+    point.y += miniature ? 0 : placement ? placement.bodyHeight * .55 - 40 : 22;
+    return point;
   }
   private spellEffect(uid: string, skill: string, onImpact: () => void = () => {}) {
     const target = this.unitNodes.get(uid), token = this.generation;
@@ -556,10 +817,12 @@ export class GameApp extends Component {
     // Local origin is the sword tip / fireball core, so every trajectory ends on this event's target.
     const offsets = sword ? [-22, 0, 22] : [0];
     for (const offset of offsets) {
-      const impactX = target.position.x + offset, impactY = target.position.y + 22;
+      const impact = this.spellImpactPoint(uid); if (!impact) { hit(); return; }
+      const impactX = impact.x + offset, impactY = impact.y;
       const dx = sword ? 115 : 240, dy = sword ? -150 : 0;
       const fx = this.make('CommanderSpell', this.root, impactX - dx, impactY - dy, 1, 1);
-      const width = sword ? 145 : 220, height = width * frame.originalSize.height / frame.originalSize.width;
+      const miniature = this.stageMode && !this.stagePlacements.has(uid);
+      const width = miniature ? (sword ? 70 : 100) : (sword ? 145 : 220), height = width * frame.originalSize.height / frame.originalSize.width;
       const anchorX = sword ? .89 : .84, anchorY = sword ? .89 : .53;
       const art = this.make('SpellSource', fx, (.5 - anchorX) * width, (anchorY - .5) * height, width, height);
       const sprite = art.addComponent(Sprite); sprite.spriteFrame = frame; sprite.sizeMode = Sprite.SizeMode.CUSTOM;

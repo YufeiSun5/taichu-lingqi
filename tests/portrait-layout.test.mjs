@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
+import { stageFocus, stageCell, stageCover, preparationBackdrop } from '../assets/scripts/presentation/BattleStage.ts';
 import * as core from '../assets/scripts/core/game.ts';
 let source = readFileSync(new URL('../assets/scripts/GameApp.ts', import.meta.url), 'utf8');
 source = stripTypeScriptTypes(source.replace(/^@ccclass\([^\n]+\)\n/gm, '').replace(/@property /g, ''), { mode: 'strip' })
@@ -10,32 +11,48 @@ source = stripTypeScriptTypes(source.replace(/^@ccclass\([^\n]+\)\n/gm, '').repl
 class FakeGraphics {}
 class FakeSprite { static SizeMode = { CUSTOM: 0 }; }
 class FakeTransform {}
+class FakeFrame {refs=0;isValid=true;reset(info){Object.assign(this,info);}addRef(){this.refs++;}decRef(){this.refs--;}}
+class FakeRect {constructor(x,y,width,height){Object.assign(this,{x,y,width,height});}}
+class FakeSize {constructor(width,height){Object.assign(this,{width,height});}}
+class FakeVec2 {constructor(x,y){Object.assign(this,{x,y});}}
 class FakeButton { static EventType = { CLICK: 'tap' }; static Transition = { NONE: 0 }; }
 class FakeColor { constructor(r,g,b,a){Object.assign(this,{r,g,b,a});} }
 const resources = { loads: [], load(path,type,callback){this.loads.push({path,callback});} };
 const graphics = () => {const calls=[];return new Proxy({calls}, {get:(obj,key)=>key in obj?obj[key]:(...args)=>{calls.push([key,...args]);}});};
-const makeNode=(parent=null,x=0,y=0,w=0,h=0)=>({parent,x,y,w,h,isValid:true,children:[],events:{},components:new Map(),scaleX:1,scaleY:1,
- on(key,fn){this.events[key]=fn;},destroy(){this.isValid=false;},removeAllChildren(){this.children=[];},
- addComponent(type){const c=type===FakeSprite?{}:graphics();this.components.set(type,c);return c;},
- getComponent(type){if(type===FakeTransform)return {setContentSize:(w,h)=>{this.w=w;this.h=h;}};return this.components.get(type);},
- setPosition(x,y){this.x=x;this.y=y;},position:{x,y,clone(){return {x,y};}},setScale(x,y){this.scaleX=x;this.scaleY=y;}});
+const world=n=>{let x=n.x,y=n.y;for(let p=n.parent;p;p=p.parent){x=x*p.scaleX+p.x;y=y*p.scaleY+p.y;}return {x,y,z:0};};
+const makeNode=(parent=null,x=0,y=0,w=0,h=0)=>{
+ let owner=null;
+ const node={x,y,w,h,isValid:true,children:[],events:{},components:new Map(),scaleX:1,scaleY:1,
+  get parent(){return owner;},set parent(value){if(owner){const i=owner.children.indexOf(this);if(i>=0)owner.children.splice(i,1);}owner=value;if(owner&&!owner.children.includes(this))owner.children.push(this);},
+  on(key,fn){this.events[key]=fn;},destroy(){this.isValid=false;},removeAllChildren(){for(const child of [...this.children])child.parent=null;},
+  addComponent(type){const c=type===FakeSprite?{}:graphics();this.components.set(type,c);return c;},
+  getComponent(type){if(type===FakeTransform)return {setContentSize:(w,h)=>{this.w=w;this.h=h;},convertToNodeSpaceAR:p=>{const origin=world(this);return {x:p.x-origin.x,y:p.y-origin.y,z:0};}};return this.components.get(type);},
+  setSiblingIndex(index){if(!owner)return;const old=owner.children.indexOf(this);if(old>=0)owner.children.splice(old,1);owner.children.splice(index,0,this);},
+  setPosition(x,y){if(typeof x==='object'){this.x=x.x;this.y=x.y;}else{this.x=x;this.y=y;}},
+  get position(){const {x,y}=this;return {x,y,z:0,clone(){return {x,y,z:0};}};},get worldPosition(){return world(this);},
+  setScale(x,y){this.scaleX=x;this.scaleY=y;}
+ };node.parent=parent;return node;
+};
 const motions=[];
 const tweenMock=target=>{const steps=[];const chain={};for(const name of ['to','by','delay','call'])chain[name]=(...args)=>{steps.push({name,args});return chain;};chain.start=()=>{motions.push({target,steps});return chain;};return chain;};
 class FakeVec3 {constructor(x,y,z){Object.assign(this,{x,y,z});}}
-const GameApp = new Function('_decorator','Component','Node','resources','SpriteFrame','Graphics','Color','Sprite','UITransform','LabelOutline','Button','BlockInputEvents','UIOpacity','tween','Vec3','isValid',...Object.keys(core),source+'\nreturn GameApp;')({},class {},{EventType:{TOUCH_END:'tap'}},resources,class {},FakeGraphics,FakeColor,FakeSprite,FakeTransform,class {},FakeButton,class {},class {},tweenMock,FakeVec3,n=>!!n&&n.isValid!==false,...Object.values(core));
+const GameApp = new Function('_decorator','Component','Node','resources','SpriteFrame','Graphics','Color','Sprite','UITransform','LabelOutline','Button','BlockInputEvents','UIOpacity','Texture2D','Rect','Size','Vec2','tween','Vec3','isValid','stageFocus','stageCell','stageCover','preparationBackdrop','view','Mask',...Object.keys(core),source+'\nreturn GameApp;')({},class {},{EventType:{TOUCH_END:'tap'}},resources,FakeFrame,FakeGraphics,FakeColor,FakeSprite,FakeTransform,class {},FakeButton,class {},class {},class {},FakeRect,FakeSize,FakeVec2,tweenMock,FakeVec3,n=>!!n&&n.isValid!==false,stageFocus,stageCell,stageCover,preparationBackdrop,{getFrameSize:()=>({width:390,height:844})},class {},...Object.values(core));
 function setup(stage=1) {
  resources.loads.length=0;
  const app=new GameApp(); app.root=makeNode(); app.save=core.createSave(); app.save.stage=stage;
  app.save.owned=core.HEROES.map(h=>h.id); app.save.coins=10000;
  app.save.formation=Array(9).fill(null);core.getUnlockedSlots(stage).forEach((slot,i)=>app.save.formation[slot]=core.HEROES[i].id);
+ // Existing renderer contracts start with ready resources; dedicated gate tests restore the real method.
+ app.awaitBattleAssets=(units,token,ready)=>ready();
  app.nodes=[];app.scheduleOnce=()=>{};app.color=()=>({});app.persist=()=>true;
- app.make=(name,parent,x,y,w=0,h=0)=>{const n=makeNode(parent,x,y,w,h);n.name=name;parent.children.push(n);app.nodes.push(n);return n;};
+ app.make=(name,parent,x,y,w=0,h=0)=>{const n=makeNode(parent,x,y,w,h);n.name=name;app.nodes.push(n);return n;};
  app.box=(p,x,y,w,h)=>app.make('Panel',p,x,y,w,h);
  app.label=(p,text,x,y,size=24,color='',w=640)=>{const n=app.make('Text',p,x,y,w,size*2.5);n.text=text;n.fontSize=size;return {node:n,string:text,isValid:true};};
  const button=app.button;app.button=function(...args){const n=button.apply(this,args);n.button=true;n.text=args[1];return n;};
  return app;
 }
-function alive(n){return n.isValid&&(!n.parent||alive(n.parent));}
+function readyFigures(app){for(const unit of core.simulateBattle(app.save).initialUnits){app.unitArtReady.add(unit.uid);app.spellFrames.set(app.fighterArt(unit.role,unit.heroId).name,new FakeFrame());}for(const name of ['commander','ui-skill-banner'])app.spellFrames.set(name,new FakeFrame());}
+function alive(n){return n.active!==false&&n.isValid&&(!n.parent||alive(n.parent));}
 function rect(n){let x=n.x,y=n.y;for(let p=n.parent;p;p=p.parent){x+=p.x;y+=p.y;}return {left:x-n.w/2,right:x+n.w/2,bottom:y-n.h/2,top:y+n.h/2};}
 function verify(app) {
  const visible=n=>{if(!alive(n))return false;if(!app.modal)return true;for(let p=n;p;p=p.parent)if(p===app.modal)return true;return false;};
@@ -88,7 +105,7 @@ test('source anchors ground both mirrored and non-mirrored art without moving sh
  for(const u of [...core.simulateBattle(app.save).initialUnits].sort((a,b)=>a.row-b.row||b.col-a.col)){
   const n=app.unitNodes.get(u.uid);const art=app.fighterArt(u.role,u.heroId);const portrait=app.unitPortraits.get(u.uid);
   const bytes=readFileSync(new URL(`../assets/resources/art/${art.name}.png`,import.meta.url));const width=bytes.readUInt32BE(16),height=bytes.readUInt32BE(20);
-  const request=resources.loads.find(r=>r.path===`art/${art.name}/spriteFrame`&&!r.used);request.used=true;request.callback(null,{originalSize:{width,height}});
+  const request=resources.loads.find(r=>r.path===`art/${art.name}/spriteFrame`&&!r.used);request.used=true;request.callback(null,Object.assign(new FakeFrame(),{originalSize:{width,height}}));
   const scale=app.battlePlacement(u).bodyHeight/(art.groundY-art.bodyTop),mirror=u.side==='enemy'?-1:1;
   assert.ok(Math.abs(portrait.x+(art.groundX-width/2)*scale*mirror)<1e-9);
   assert.ok(Math.abs(portrait.y+(height/2-art.groundY)*scale+40)<1e-9);
@@ -105,7 +122,7 @@ test('HP display consumes bounded event values and delayed art cannot resurrect 
  app.updateHealth(u.uid,u.maxHp*2);assert.equal(app.unitHealth.get(u.uid).hp,u.maxHp);
  app.updateHealth(u.uid,0,true);assert.equal(app.hpLabels.get(u.uid).string,'已退场');
  const art=app.fighterArt(u.role,u.heroId),request=resources.loads.find(r=>r.path===`art/${art.name}/spriteFrame`);
- const bytes=readFileSync(new URL(`../assets/resources/art/${art.name}.png`,import.meta.url));request.callback(null,{originalSize:{width:bytes.readUInt32BE(16),height:bytes.readUInt32BE(20)}});
+ const bytes=readFileSync(new URL(`../assets/resources/art/${art.name}.png`,import.meta.url));request.callback(null,Object.assign(new FakeFrame(),{originalSize:{width:bytes.readUInt32BE(16),height:bytes.readUInt32BE(20)}}));
  assert.equal(app.unitPortraits.get(u.uid).getComponent(FakeSprite).color.a,90);
  assert.equal(app.unitNodes.get(u.uid).scaleX,1);assert.equal(app.unitNodes.get(u.uid).scaleY,1);
 });
@@ -249,4 +266,150 @@ test('commander replay defers health death rings and numbers to contact without 
  assert.equal(app.unitHealth.get(event.target).hp,event.hp);assert.equal(app.unitHealth.get(event.target).dead,event.hp<=0);
  assert.equal(app.status.string,event.text);assert.equal(app.nodes.filter(n=>n.text===`-${event.amount}`).length,1);
  assert.equal(pending.length,1,'impact does not add another playback timer');
+});
+
+test('runtime sword frames retain exact 627 cells and one scale with mirrored foot anchoring',()=>{
+ const app=setup(13);app.game();app.node=makeNode();app.preloadSwordActions();
+ let textureRefs=0;const texture={width:1254,height:1254,isValid:true,addRef(){textureRefs++;},decRef(){textureRefs--;}};
+ resources.loads.find(l=>l.path==='art/fighter-sword-actions/texture').callback(null,texture);assert.equal(textureRefs,1);
+ assert.equal(app.swordFrames.length,4);
+ for(const [i,frame] of app.swordFrames.entries()){assert.deepEqual(frame.rect,new FakeRect(i%2*627,Math.floor(i/2)*627,627,627));assert.deepEqual(frame.originalSize,new FakeSize(627,627));assert.deepEqual(frame.offset,new FakeVec2(0,0));assert.equal(frame.refs,1);}
+ for(const unit of core.simulateBattle(app.save).initialUnits.filter(u=>u.heroId==='sword')){
+  const art=app.unitPortraits.get(unit.uid),hud=app.unitNodes.get(unit.uid).children.find(n=>n.name==='UnitHUD');const scale=app.battlePlacement(unit).bodyHeight/428,mirror=unit.side==='enemy'?-1:1;
+  for(const [i,foot] of [[275,562],[311.5,562],[268,545],[276,546]].entries()){
+   assert.equal(app.swordPose(unit.uid,i),true);assert.equal(art.w,627*scale);assert.equal(art.h,627*scale);
+   assert.ok(Math.abs(art.x+(foot[0]-313.5)*scale*mirror)<1e-9);assert.ok(Math.abs(art.y+(313.5-foot[1])*scale+40)<1e-9);assert.equal(hud.y,0);
+  }
+ }
+ const blade=core.simulateBattle(app.save).initialUnits.find(u=>u.heroId==='blade');assert.equal(app.swordPose(blade.uid,1),false);
+ const frames=[...app.swordFrames];app.unscheduleAllCallbacks=()=>{};app.onDestroy();assert.equal(textureRefs,0);assert.ok(frames.every(f=>f.refs===0));
+});
+test('sword action contact and recovery stay inside effect budget at both speeds',()=>{
+ for(const speed of [1,2]){
+  const app=setup(13);app.game();app.isValid=true;app.speed=speed;app.swordFrames=Array.from({length:4},()=>new FakeFrame());
+  const result=core.simulateBattle(app.save),pending=[];let now=0,serial=0;const poses=[],health=[],energies=[];
+  app.scheduleOnce=(fn,delay)=>pending.push({fn,time:now+delay,serial:serial++});
+  app.spellEffect=(uid,skill,hit)=>hit();
+  const pose=app.swordPose;app.swordPose=function(uid,i){const ok=pose.call(this,uid,i);if(ok)poses.push({uid,i,time:now});return ok;};
+  const hp=app.updateHealth;app.updateHealth=function(uid,value,dead){health.push({uid,value,time:now});return hp.call(this,uid,value,dead);};
+  const energy=app.updateEnergy;app.updateEnergy=function(uid,value){energies.push({uid,value,time:now});return energy.call(this,uid,value);};
+  app.fight();let steps=0;while(pending.length){pending.sort((a,b)=>a.time-b.time||a.serial-b.serial);const next=pending.shift();now=next.time;next.fn();assert.ok(steps++<4000);}
+  const expected=result.events.filter(e=>e.type==='action'&&app.unitActors.get(e.actor)?.heroId==='sword');
+  const starts=poses.filter(p=>p.i===1);assert.equal(starts.length,expected.length);
+  starts.forEach(start=>{for(const [i,dt]of [[2,.14],[3,.25],[0,.34]])assert.ok(poses.some(p=>p.uid===start.uid&&p.i===i&&Math.abs(p.time-start.time-dt/speed)<1e-8));});
+  let time=0;
+  for(let j=0;j<result.events.length;j++){
+   const e=result.events[j];if(e.type==='action'){
+    const actor=app.unitActors.get(e.actor);if(actor?.heroId==='sword'){
+     let k=j+1;while(k<result.events.length&&['attack','heal','death'].includes(result.events[k].type))k++;
+     for(const effect of result.events.slice(j+1,k).filter(e=>typeof e.hp==='number'))assert.ok(health.some(h=>h.uid===effect.target&&h.value===effect.hp&&Math.abs(h.time-time-.14/speed)<1e-8));
+     const end=time+(k-j-1)*.38/speed;assert.ok(energies.some(v=>v.uid===e.actor&&v.value===e.energyAfter&&Math.abs(v.time-end)<1e-8));
+    }continue;
+   }time+=(e.type==='commander'?.65:.38)/speed;
+  }
+  assert.ok(Math.abs(now-time)<1e-8,'same total replay duration as unanimated event budget');
+  for(const unit of result.units)assert.equal(app.unitHealth.get(unit.uid).hp,unit.hp);
+ }
+});
+test('dead or cleared units cannot be restored by queued sword poses or late texture loads',()=>{
+ const app=setup();app.game();app.isValid=true;app.swordFrames=Array.from({length:4},()=>new FakeFrame());const uid=[...app.unitActors].find(([,a])=>a.heroId==='sword')[0];
+ const queue=[];app.scheduleOnce=fn=>queue.push(fn);let hits=0;app.playSwordAction(uid,()=>hits++);app.updateHealth(uid,0,true);queue.forEach(fn=>fn());assert.equal(hits,0);assert.equal(app.unitActors.get(uid).pose,1);
+ const other=setup();other.game();other.isValid=true;other.swordFrames=Array.from({length:4},()=>new FakeFrame());const id=[...other.unitActors].find(([,a])=>a.heroId==='sword')[0];const stale=[];other.scheduleOnce=fn=>stale.push(fn);other.playSwordAction(id,()=>hits++);other.clear();stale.forEach(fn=>fn());assert.equal(hits,0);
+ app.node=makeNode();app.running=false;app.preloadSwordActions();const texture={width:1254,height:1254,isValid:true,addRef(){},decRef(){}};resources.loads.find(l=>l.path==='art/fighter-sword-actions/texture').callback(null,texture);assert.equal(app.unitActors.get(uid).pose,1,'late asset does not restore dead stance');
+});
+
+test('performance view removes preparation menus and keeps only large focal actors with tiny formation portraits',()=>{
+ const app=setup(13);app.game();const units=core.simulateBattle(app.save).initialUnits;app.enterBattleStage(units);verify(app);
+ assert.ok(!app.nodes.filter(alive).some(n=>n.button),'no form menu remains during combat');
+ assert.equal(app.miniPortraits.size,units.length);assert.ok(app.nodes.filter(alive).filter(n=>n.name==='FighterArt').length<=2);
+ assert.ok(app.nodes.filter(alive).every(n=>!['TopVignette','BottomVignette'].includes(n.name)));
+ for(const placement of app.stagePlacements.values())assert.ok(placement.bodyHeight>=1280*.28&&placement.bodyHeight<=1280*.4);
+ const enemy=units.find(u=>u.side==='enemy'),ally=units.find(u=>u.side==='ally');app.focusBattle(enemy.uid,[ally.uid]);
+ assert.ok(app.unitNodes.get(enemy.uid).x>0);assert.ok(app.unitNodes.get(ally.uid).x<0);
+ const before=structuredClone(app.save);app.focusBattle(ally.uid,[ally.uid]);assert.equal(app.stagePlacements.size,1);assert.deepEqual(app.save,before);
+});
+test('stage hides all eighteen nameplates while retaining live health energy and fixed death cells',()=>{
+ const app=setup(13);app.game();const units=core.simulateBattle(app.save).initialUnits;app.enterBattleStage(units);
+ const unit=units[0],mini=app.miniPortraits.get(unit.uid),cell=mini.parent,before={x:cell.x,y:cell.y};app.focusBattle(unit.uid,[units[1].uid]);
+ app.updateHealth(unit.uid,11);app.updateEnergy(unit.uid,1);assert.ok(app.stageLabels.get(unit.uid).string.includes('11/'));assert.ok(app.stageLabels.get(unit.uid).string.includes('1灵'));
+ app.updateHealth(unit.uid,0,true);assert.ok(app.stageLabels.get(unit.uid).string.includes('已退场'));assert.deepEqual({x:cell.x,y:cell.y},before);
+ for(const other of units){const hud=app.miniPortraits.get(other.uid).parent.children.find(n=>n.name==='UnitHUD');const plaque=hud.children.find(n=>n.name==='JadeFrame');assert.equal(plaque.active,false);}
+});
+test('preparation backgrounds follow all three region identities and stage preserves the actual source ratio',()=>{
+ for(const [region,name]of [[0,'bamboo'],[1,'temple'],[2,'underworld'],[3,'bamboo']]){
+  const app=setup();app.background(region);assert.ok(resources.loads.some(l=>l.path===`art/battle-${name}-portrait/spriteFrame`));
+ }
+ const app=setup();app.game();app.enterBattleStage(core.simulateBattle(app.save).initialUnits);
+ resources.loads.find(l=>l.path==='art/battle-bamboo-stage/spriteFrame').callback(null,{originalSize:{width:941,height:1670}});
+ const bg=app.nodes.find(n=>n.name==='StageBackdrop');assert.ok(Math.abs(bg.w/bg.h-941/1670)<1e-10);assert.ok(bg.h>=720*844/390);
+});
+test('focus locks per complete action and commander sequence without changing results',()=>{
+ const app=setup(13);app.game();app.isValid=true;const result=core.simulateBattle(app.save),calls=[];
+ const focus=app.focusBattle;app.focusBattle=function(actor,targets,commander){calls.push({actor,targets:[...targets],commander});return focus.call(this,actor,targets,commander);};
+ app.spellEffect=(uid,skill,hit)=>hit();const queue=[];app.scheduleOnce=fn=>queue.push(fn);app.fight();while(queue.length)queue.shift()();
+ assert.equal(calls.filter(c=>c.commander).length,1);
+ assert.equal(calls.filter(c=>c.actor).length,result.events.filter(e=>e.type==='action').length+1,'one initial view plus one camera selection per action');
+ assert.deepEqual(calls.find(c=>c.commander).targets,result.events.filter(e=>e.type==='commander').map(e=>e.target));
+ for(const unit of result.units)assert.equal(app.unitHealth.get(unit.uid).hp,unit.hp);
+});
+
+test('hand-painted skill banner fits alpha bounds rather than compressing the transparent canvas',()=>{
+ const app=setup();app.game();app.spellFrames.set('ui-skill-banner',Object.assign(new FakeFrame(),{originalSize:{width:2172,height:724}}));app.enterBattleStage(core.simulateBattle(app.save).initialUnits);
+ const banner=app.nodes.find(n=>n.name==='SkillBanner');assert.ok(Math.abs(banner.w/banner.h-3)<1e-9);assert.ok(Math.abs(banner.h*340/724-620*340/2118)<1e-9);assert.ok(banner.h>200);
+});
+test('off-camera third and ninth commander hits use their own miniatures, even after first focus dies',()=>{
+ const app=setup(13);app.game();const units=core.simulateBattle(app.save).initialUnits,enemies=units.filter(u=>u.side==='enemy');app.enterBattleStage(units);
+ app.focusBattle(undefined,enemies.map(u=>u.uid),true);app.updateHealth(enemies[0].uid,0,true);
+ app.root.setPosition(17,29);app.stageLayer.setPosition(11,-7);app.spellFrames.set('fx-sword',{isValid:true,originalSize:{width:1156,height:1361}});
+ for(const enemy of [enemies[2],enemies[8]]){
+  const mini=app.miniPortraits.get(enemy.uid),world=mini.worldPosition,root=app.root.worldPosition;
+  const point=app.spellImpactPoint(enemy.uid);assert.equal(point.x,world.x-root.x);assert.equal(point.y,world.y-root.y);
+  assert.notEqual(point.y,app.spellImpactPoint(enemies[0].uid).y);
+  motions.length=0;app.spellEffect(enemy.uid,'swordRain');const travels=motions.filter(m=>m.target.name==='CommanderSpell');assert.equal(travels.length,3);
+  assert.ok(travels.some(m=>m.steps[0].args[1].position.x===point.x));assert.ok(travels.every(m=>m.steps[0].args[1].position.y===point.y));
+ }
+});
+test('scene-graph mock updates local and world position plus reparenting like the engine contract',()=>{
+ const root=makeNode(null,10,20),left=makeNode(root,30,40),right=makeNode(root,-10,-20),child=makeNode(left,2,3);
+ child.setPosition(5,7);assert.equal(child.position.x,5);assert.deepEqual(child.worldPosition,{x:45,y:67,z:0});
+ child.parent=right;assert.ok(!left.children.includes(child));assert.ok(right.children.includes(child));assert.deepEqual(child.worldPosition,{x:5,y:7,z:0});
+ const app=setup();app.game();const units=core.simulateBattle(app.save).initialUnits;app.enterBattleStage(units);const figure=app.unitNodes.get(units[0].uid),tile=app.miniPortraits.get(units[0].uid).parent;
+ assert.ok(!figure.children.some(n=>n.name==='UnitHUD'));assert.ok(tile.children.some(n=>n.name==='UnitHUD'));assert.equal(figure.parent.name,'StageFigures');
+});
+test('cold battle gate waits for stage, selected spell and all figures before starting exactly once',()=>{
+ const app=setup();app.game();app.isValid=true;app.awaitBattleAssets=Object.getPrototypeOf(app).awaitBattleAssets;
+ const queue=[];app.scheduleOnce=(fn,delay)=>queue.push({fn,delay});let starts=0;app.replayBattle=()=>starts++;const before=structuredClone(app.save);
+ app.fight();app.fight();assert.equal(starts,0);assert.equal(queue.length,1);assert.equal(app.stageMode,false);assert.equal(app.running,true);
+ assert.ok(app.nodes.filter(alive).some(n=>n.button&&n.text==='开始战斗'),'preparation remains visible under the loading status');
+ readyFigures(app);app.spellFrames.set('battle-bamboo-stage',new FakeFrame());
+ queue.shift().fn();assert.equal(starts,0,'selected spell is also required');app.spellFrames.set('fx-sword',new FakeFrame());
+ const final=queue.shift().fn;final();final();assert.equal(starts,1);assert.deepEqual(app.save,before);assert.equal(app.resultAwarded,false);
+});
+test('failed or timed-out loading exposes retry without awards, and generation change cancels the gate',()=>{
+ for(const fail of [true,false]){
+  const app=setup();app.game();app.isValid=true;app.awaitBattleAssets=Object.getPrototypeOf(app).awaitBattleAssets;const before=structuredClone(app.save),queue=[];let starts=0;
+  app.scheduleOnce=fn=>queue.push(fn);app.replayBattle=()=>starts++;if(fail)app.unitArtFailed.add([...app.unitNodes.keys()][0]);app.fight();
+  let ticks=0;while(queue.length){queue.shift()();assert.ok(ticks++<110);}
+  assert.equal(starts,0);assert.equal(app.running,false);assert.equal(app.resultAwarded,false);assert.deepEqual(app.save,before);
+  const retry=app.nodes.filter(alive).find(n=>n.button&&n.text==='重试加载并开始');assert.ok(retry);retry.events.tap();assert.equal(app.running,true);assert.ok(resources.loads.some(l=>l.path==='art/battle-bamboo-stage/spriteFrame'));
+  readyFigures(app);app.spellFrames.set('battle-bamboo-stage',new FakeFrame());app.spellFrames.set('fx-sword',new FakeFrame());queue.shift()();assert.equal(starts,1);
+ }
+ const app=setup();app.game();app.isValid=true;app.awaitBattleAssets=Object.getPrototypeOf(app).awaitBattleAssets;const queue=[];let starts=0;app.scheduleOnce=fn=>queue.push(fn);app.replayBattle=()=>starts++;app.fight();const old=queue.shift();app.clear();old();assert.equal(starts,0);assert.equal(queue.length,0);
+});
+test('same-side healing labels remain separated by at least their full text bounds',()=>{
+ const app=setup(13);app.game();const units=core.simulateBattle(app.save).initialUnits;app.enterBattleStage(units);const allies=units.filter(u=>u.side==='ally'&&u.heroId!=='sword');app.focusBattle(allies[0].uid,[allies[1].uid]);
+ const labels=[...app.stageLabels.values()].map(l=>l.node);assert.ok(Math.abs(labels[0].y-labels[1].y)>=75);assert.ok(Math.abs(labels[0].y-labels[1].y)>=(labels[0].h+labels[1].h)/2);
+});
+test('opening commander and hand-painted banner are required before the gate opens',()=>{
+ const app=setup();app.game();app.isValid=true;app.awaitBattleAssets=Object.getPrototypeOf(app).awaitBattleAssets;readyFigures(app);app.spellFrames.delete('commander');app.spellFrames.delete('ui-skill-banner');
+ app.spellFrames.set('battle-bamboo-stage',new FakeFrame());app.spellFrames.set('fx-sword',new FakeFrame());const queue=[];app.scheduleOnce=fn=>queue.push(fn);let starts=0;app.replayBattle=()=>starts++;
+ app.fight();assert.equal(starts,0);app.spellFrames.set('commander',new FakeFrame());queue.shift()();assert.equal(starts,0);app.spellFrames.set('ui-skill-banner',new FakeFrame());queue.shift()();assert.equal(starts,1);
+});
+test('ready stage reuses cache synchronously for commander, banner and original miniature art',()=>{
+ const app=setup(13);app.game();const units=core.simulateBattle(app.save).initialUnits;
+ for(const name of ['battle-bamboo-stage','commander','ui-skill-banner',...units.map(u=>app.fighterArt(u.role,u.heroId).name)])app.spellFrames.set(name,Object.assign(new FakeFrame(),{originalSize:{width:name==='ui-skill-banner'?2172:941,height:name==='ui-skill-banner'?724:1670}}));
+ const requests=resources.loads.length;app.enterBattleStage(units);assert.equal(resources.loads.length,requests,'no async re-fetch after readiness');
+ assert.ok(app.stageCommander.getComponent(FakeSprite));assert.ok(app.nodes.find(n=>n.name==='SkillBanner').getComponent(FakeSprite));
+ for(const unit of units)assert.equal(app.miniPortraits.get(unit.uid).getComponent(FakeSprite).spriteFrame,app.spellFrames.get(app.fighterArt(unit.role,unit.heroId).name));
+ const ninth=units.filter(u=>u.side==='enemy')[8];app.focusBattle(undefined,units.filter(u=>u.side==='enemy').map(u=>u.uid),true);const before=app.spellImpactPoint(ninth.uid);app.updateHealth(ninth.uid,0,true);assert.deepEqual(app.spellImpactPoint(ninth.uid),before,'death never relocates the real target miniature');
 });

@@ -74,3 +74,11 @@ vfx-art 后续独占 fighter-sword-actions.png 及 meta，研发凌霄身份一�
 
 ### PORTRAIT-03 实质美术重做（2026-11-17）
 九名独立原创静态角色、连续地面竖屏竹林背景和两张法术源图已完成源文件检查；薄顶栏/紧凑操作区/放大角色/脚点/标准按钮/法术命中时序正在集成，必须按新提交在Creator390×844重验。现有画面被用户否定，不能沿用此前美术通过结论。portrait-ui追加最小tests/app-storage.test.mjs的引擎mock兼容权限，不改变存储规则；集成负责人维护工程资源契约与文档。portrait-art继续仅负责battle-temple-portrait.png/meta，尚未纳入本轮提交。motionatlas仍在scratch独立审阅，未合格不得入库。
+
+### MOTION-01 四姿势运行验证
+基线ee04ae2，新静态画面由Mac QA独占隔离Creator复验。portrait-ui继续唯一拥有GameApp.ts、portrait-layout测试及必要mock（交回不自行提交），接入凌霄原创2×2四姿势图集，固定627格、每帧脚点偏移、每action一次、命中同步、HUD固定与资源生命周期测试。不得把四姿势称最终流畅身体动画。集成负责人独占共享文档/提交，review只读；role-art只读制定前18关遭遇与教学节奏，不改规则。图集已独立审阅允许接入验证，未接入前不随静态版提交。
+
+portrait-art独占第二场景battle-temple-portrait.png/meta；vfx-art交回动作图后独占第三场景battle-underworld-portrait.png/meta。两者均先scratch完整保存与解码，再一次性进入资源目录，避免动态资源测试读到半文件。原图保留、运行验收后才按性能证据考虑导入压缩，不以降分辨率掩盖质量要求。
+
+### STAGE-01 战前整备与战中近景分离（最高优先级）
+用户再次强烈否定现视觉。已实际查看官方两张战斗图并记录根因，详见art-direction实机拆解。portrait-ui唯一拥有GameApp、presentation/BattleStage.ts及meta、展示tests和最小mock，保留规则/存档契约；vfx-art独占battle-bamboo-stage.png/meta（近景舞台，区别大空地准备背景）；review只读显示契约；role-art只读角色风格对比，18关遭遇方案暂不实施。Mac前台被非QA操作切走，QA已停止点击避免抢占，云端仍持续。新舞台须真实引擎验证，先不再扩旧表单画面。
