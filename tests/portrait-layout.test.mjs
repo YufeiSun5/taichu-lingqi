@@ -778,3 +778,21 @@ test('legal empty formation keeps preparation and menus available without battle
  app.game();app.fight();assert.equal(app.running,false);assert.equal(app.resultAwarded,false);assert.equal(settled,0);assert.match(message,/至少/);assert.deepEqual(app.save,before);
  assert.ok(!source.slice(source.indexOf('private preloadSpells'),source.indexOf('onLoad()')).includes('simulateBattle'));
 });
+
+test('mage damage status waits for impact at both speeds while ordinary attacks remain immediate',()=>{
+ for(const speed of [1,2]) for(const skill of ['classSkill','attack']){
+  const app=setup();app.game();app.isValid=true;app.speed=speed;app.enterBattleStage=()=>{};app.focusBattle=()=>{};app.outcome=()=>{};app.persist=()=>{};
+  const units=core.simulateBattle(app.save).initialUnits,actor=units.find(u=>u.heroId==='mage'),target=units.find(u=>u.side!==actor.side);
+  const timers=[];let now=0,hp=target.hp;app.scheduleOnce=(fn,delay)=>timers.push({fn,at:now+delay});app.unitNodes.clear();app.updateHealth=(_uid,value)=>hp=value;
+  app.mageSpell=(_actor,_target,_first,hit)=>app.scheduleOnce(hit,.22/speed);
+  const text='damage -25',events=[{type:'action',actor:actor.uid,actionSkill:skill,energyAfter:0,text:'action'},{type:'attack',actor:actor.uid,target:target.uid,hp:7,text},{type:'end',text:'end'}];
+  const statusWrites=[];let status='';Object.defineProperty(app.status,'string',{get:()=>status,set:value=>{status=value;statusWrites.push({value,at:now});}});
+  app.replayBattle({initialUnits:units,units,events,winner:'enemy',rounds:1},app.generation);
+  if(skill==='classSkill'){
+   assert.equal(app.status.string,'施法');assert.equal(hp,target.hp);assert.ok(!statusWrites.some(write=>write.value===text));
+   timers.sort((a,b)=>a.at-b.at);const impact=timers.shift();assert.equal(impact.at,.22/speed);now=impact.at;impact.fn();assert.equal(app.status.string,text);assert.equal(hp,7);
+   assert.ok(statusWrites.filter(write=>write.value===text).every(write=>write.at===.22/speed));
+  }else{assert.equal(app.status.string,text);assert.equal(hp,7);assert.equal(timers.length,1);}
+  assert.equal(timers[0].at,.38/speed,'original next-effect budget unchanged');
+ }
+});

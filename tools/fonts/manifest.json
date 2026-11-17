@@ -10,7 +10,7 @@
   "hanCount": 452,
   "missing": [],
   "sourceTextHashes": {
-    "GameApp.ts": "efc1bc37b634a01689f8c1ac14de676cdffd5d7860c3d35b789e734496084467",
+    "GameApp.ts": "d2037bcad185cb5aa420178de48f7f9aa5ef561be9115fa4dde9f13631a6697c",
     "core/game.ts": "cae57c63e2a291c43171b87953abcfcee1118be10cbfafaeb60c6a7bc1f07bed",
     "presentation/BattleStage.ts": "22d8f55ab1d2348330e9480788e23767f20b73920a8dd379839f6f17ebb0040b",
     "presentation/ContactMotion.ts": "9386e319a53863ed74aa3cf16c7c81ee6efda1ef61d63e56bf5b29f52a2ec961",

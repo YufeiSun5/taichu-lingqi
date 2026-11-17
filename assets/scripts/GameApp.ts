@@ -1117,7 +1117,8 @@ export class GameApp extends Component {
         commanderFocused = true; this.focusBattle(undefined, result.events.filter(event => event.type === 'commander').flatMap(event => event.target ? [event.target] : []), true);
       }
       if (e.type === 'end') finishAction();
-      this.status.string = e.type === 'commander' ? `${e.skill || '指挥官神通'} · 施法` : e.text;
+      const mageAttack = e.type === 'attack' && e.target && pendingAction?.actionSkill === 'classSkill' && this.unitActors.get(pendingAction.actor)?.heroId === 'mage';
+      this.status.string = e.type === 'commander' ? `${e.skill || '指挥官神通'} · 施法` : mageAttack ? '施法' : e.text;
       const displayImpact = impactFor(e);
       if (e.type === 'commander' && e.target) {
         this.eventFeedback(); // Clear previous feedback while the new projectile is travelling.
